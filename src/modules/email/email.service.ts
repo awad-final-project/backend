@@ -1,0 +1,345 @@
+import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { EmailModel } from '../../libs/database/src/models';
+import { AccountModel } from '../../libs/database/src/models';
+import { SendEmailDto } from '../../libs/dtos';
+import { faker } from '@faker-js/faker';
+
+@Injectable()
+export class EmailService {
+  private readonly logger = new Logger(EmailService.name);
+
+  constructor(
+    private readonly emailModel: EmailModel,
+    private readonly accountModel: AccountModel,
+  ) {}
+
+  async getMailboxes(userId: string) {
+    try {
+      const inboxCount = await this.emailModel.countDocuments({
+        accountId: userId,
+        folder: 'inbox',
+        isRead: false,
+      });
+
+      const sentCount = await this.emailModel.countDocuments({
+        accountId: userId,
+        folder: 'sent',
+      });
+
+      const draftsCount = await this.emailModel.countDocuments({
+        accountId: userId,
+        folder: 'drafts',
+      });
+
+      const starredCount = await this.emailModel.countDocuments({
+        accountId: userId,
+        isStarred: true,
+      });
+
+      const archiveCount = await this.emailModel.countDocuments({
+        accountId: userId,
+        folder: 'archive',
+      });
+
+      const trashCount = await this.emailModel.countDocuments({
+        accountId: userId,
+        folder: 'trash',
+      });
+
+      return [
+        { id: 'inbox', name: 'Inbox', count: inboxCount, icon: 'inbox' },
+        { id: 'starred', name: 'Starred', count: starredCount, icon: 'star' },
+        { id: 'sent', name: 'Sent', count: sentCount, icon: 'send' },
+        { id: 'drafts', name: 'Drafts', count: draftsCount, icon: 'file' },
+        { id: 'archive', name: 'Archive', count: archiveCount, icon: 'archive' },
+        { id: 'trash', name: 'Trash', count: trashCount, icon: 'trash' },
+      ];
+    } catch (error) {
+      this.logger.error(error);
+      throw new HttpException(
+        'Error fetching mailboxes',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async getEmailsByFolder(
+    userId: string,
+    folder: string,
+    page: number = 1,
+    limit: number = 50,
+  ) {
+    try {
+      const skip = (page - 1) * limit;
+      let filter: any = { accountId: userId };
+
+      if (folder === 'starred') {
+        filter.isStarred = true;
+      } else {
+        filter.folder = folder;
+      }
+
+      const emails = await this.emailModel.find(filter);
+      const sortedEmails = emails
+        .sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime())
+        .slice(skip, skip + limit);
+
+      const total = emails.length;
+
+      return {
+        emails: sortedEmails.map(email => ({
+          id: email._id,
+          from: email.from,
+          to: email.to,
+          subject: email.subject,
+          preview: email.preview,
+          isRead: email.isRead,
+          isStarred: email.isStarred,
+          sentAt: email.sentAt,
+          folder: email.folder,
+        })),
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw new HttpException(
+        'Error fetching emails',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async getEmailById(userId: string, emailId: string) {
+    try {
+      const email = await this.emailModel.findById(emailId);
+
+      if (!email) {
+        throw new HttpException('Email not found', HttpStatus.NOT_FOUND);
+      }
+
+      if (email.accountId.toString() !== userId) {
+        throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      }
+
+      // Mark as read if not already
+      if (!email.isRead) {
+        await this.emailModel.updateOne(
+          { _id: emailId },
+          { isRead: true, readAt: new Date() },
+        );
+      }
+
+      return {
+        id: email._id,
+        from: email.from,
+        to: email.to,
+        subject: email.subject,
+        body: email.body,
+        preview: email.preview,
+        isRead: true,
+        isStarred: email.isStarred,
+        sentAt: email.sentAt,
+        readAt: email.readAt || new Date(),
+        folder: email.folder,
+      };
+    } catch (error) {
+      this.logger.error(error);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Error fetching email',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async sendEmail(userId: string, userEmail: string, data: SendEmailDto) {
+    try {
+      const preview = data.body.substring(0, 100);
+
+      // Save to sender's sent folder
+      await this.emailModel.save({
+        from: userEmail,
+        to: data.to,
+        subject: data.subject,
+        body: data.body,
+        preview,
+        isRead: true,
+        isStarred: false,
+        folder: 'sent',
+        sentAt: new Date(),
+        accountId: userId,
+      });
+
+      // Check if recipient exists in our system
+      const recipient = await this.accountModel.findOne({ email: data.to });
+      if (recipient) {
+        // Save to recipient's inbox
+        await this.emailModel.save({
+          from: userEmail,
+          to: data.to,
+          subject: data.subject,
+          body: data.body,
+          preview,
+          isRead: false,
+          isStarred: false,
+          folder: 'inbox',
+          sentAt: new Date(),
+          accountId: recipient._id as string,
+        });
+      }
+
+      return { message: 'Email sent successfully' };
+    } catch (error) {
+      this.logger.error(error);
+      throw new HttpException(
+        'Error sending email',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async toggleStar(userId: string, emailId: string) {
+    try {
+      const email = await this.emailModel.findById(emailId);
+
+      if (!email) {
+        throw new HttpException('Email not found', HttpStatus.NOT_FOUND);
+      }
+
+      if (email.accountId.toString() !== userId) {
+        throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      }
+
+      await this.emailModel.updateOne(
+        { _id: emailId },
+        { isStarred: !email.isStarred },
+      );
+
+      return { message: 'Email starred status updated', isStarred: !email.isStarred };
+    } catch (error) {
+      this.logger.error(error);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Error updating email',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async markAsRead(userId: string, emailId: string, isRead: boolean) {
+    try {
+      const email = await this.emailModel.findById(emailId);
+
+      if (!email) {
+        throw new HttpException('Email not found', HttpStatus.NOT_FOUND);
+      }
+
+      if (email.accountId.toString() !== userId) {
+        throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      }
+
+      const update: any = { isRead };
+      if (isRead && !email.readAt) {
+        update.readAt = new Date();
+      }
+
+      await this.emailModel.updateOne({ _id: emailId }, update);
+
+      return { message: 'Email read status updated', isRead };
+    } catch (error) {
+      this.logger.error(error);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Error updating email',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async deleteEmail(userId: string, emailId: string) {
+    try {
+      const email = await this.emailModel.findById(emailId);
+
+      if (!email) {
+        throw new HttpException('Email not found', HttpStatus.NOT_FOUND);
+      }
+
+      if (email.accountId.toString() !== userId) {
+        throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      }
+
+      if (email.folder === 'trash') {
+        // Permanently delete
+        await this.emailModel.deleteOne({ _id: emailId });
+        return { message: 'Email permanently deleted' };
+      } else {
+        // Move to trash
+        await this.emailModel.updateOne({ _id: emailId }, { folder: 'trash' });
+        return { message: 'Email moved to trash' };
+      }
+    } catch (error) {
+      this.logger.error(error);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Error deleting email',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async seedMockEmails(userId: string, userEmail: string) {
+    try {
+      // Check if user already has emails
+      const existingEmails = await this.emailModel.countDocuments({ accountId: userId });
+      if (existingEmails > 0) {
+        return { message: 'Mock emails already exist for this user' };
+      }
+
+      const mockEmails = [];
+      const folders = ['inbox', 'sent', 'drafts', 'archive'];
+
+      // Create 30 mock emails
+      for (let i = 0; i < 30; i++) {
+        const isIncoming = Math.random() > 0.5;
+        const folder = folders[Math.floor(Math.random() * folders.length)];
+        const body = faker.lorem.paragraphs(3);
+        
+        mockEmails.push({
+          from: isIncoming ? faker.internet.email() : userEmail,
+          to: isIncoming ? userEmail : faker.internet.email(),
+          subject: faker.lorem.sentence(),
+          body,
+          preview: body.substring(0, 100),
+          isRead: Math.random() > 0.3,
+          isStarred: Math.random() > 0.8,
+          folder: isIncoming ? 'inbox' : folder,
+          sentAt: faker.date.recent({ days: 30 }),
+          accountId: userId,
+        });
+      }
+
+      for (const email of mockEmails) {
+        await this.emailModel.save(email);
+      }
+
+      return { message: `Successfully seeded ${mockEmails.length} mock emails` };
+    } catch (error) {
+      this.logger.error(error);
+      throw new HttpException(
+        'Error seeding mock emails',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+}
