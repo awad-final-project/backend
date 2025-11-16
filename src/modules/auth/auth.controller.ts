@@ -35,7 +35,7 @@ export class AuthController {
     
     // Redirect to frontend Google callback route with tokens in query params
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const callbackUrl = `${frontendUrl}/log-in/google-callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}&email=${result.email}&username=${encodeURIComponent(result.username)}`;
+    const callbackUrl = `${frontendUrl}/google-callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}&email=${result.email}&username=${encodeURIComponent(result.username)}`;
     
     res.redirect(callbackUrl);
   }
