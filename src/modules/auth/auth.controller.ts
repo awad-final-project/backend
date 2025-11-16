@@ -33,11 +33,11 @@ export class AuthController {
     const googleProfile = req.user;
     const result = await this.authService.findOrCreateGoogleUser(googleProfile);
     
-    // Redirect to frontend with tokens in query params
+    // Redirect to frontend Google callback route with tokens in query params
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    res.redirect(
-      `${frontendUrl}/google/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}&email=${result.email}&username=${result.username}`,
-    );
+    const callbackUrl = `${frontendUrl}/log-in/google-callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}&email=${result.email}&username=${encodeURIComponent(result.username)}`;
+    
+    res.redirect(callbackUrl);
   }
 
   @Post('refresh')
