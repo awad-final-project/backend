@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import * as cookieParser from 'cookie-parser';
 
 import { ThrowFirstErrorValidationPipe } from './libs/utils/pipes';
 import { AppModule } from './modules/app/app.module';
@@ -8,7 +9,7 @@ import { AppModule } from './modules/app/app.module';
 async function createApp() {
   const app = await NestFactory.create(AppModule, {
     cors: {
-      origin: process.env.CORS_ORIGIN,
+      origin: process.env.CORS_ORIGIN || ['http://localhost:5173', 'http://localhost:3000'],
       methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
       preflightContinue: false,
       optionsSuccessStatus: 204,
@@ -17,12 +18,15 @@ async function createApp() {
   });
   const globalPrefix = '';
 
+  // Enable cookie parsing for httpOnly cookies
+  app.use(cookieParser());
+  
   app.setGlobalPrefix(globalPrefix);
   app.useGlobalPipes(ThrowFirstErrorValidationPipe);
 
   const config = new DocumentBuilder()
-    .setTitle('User Registration API')
-    .setDescription('User Registration API description')
+    .setTitle('Email Application API')
+    .setDescription('Email Application API description')
     .setVersion('1.0')
     .addBearerAuth()
     .build();

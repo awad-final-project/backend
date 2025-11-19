@@ -127,7 +127,7 @@ export class AuthService {
     }
   }
 
-  async refreshToken(refreshToken: string) {
+  async refreshToken(refreshToken: string, rotateToken: boolean = false) {
     try {
       const tokenDoc = await this.refreshTokenModel.findOne({
         token: refreshToken,
@@ -158,6 +158,25 @@ export class AuthService {
         accessToken: newAccessToken,
         accountId: user._id as string,
       });
+
+      // Optionally rotate refresh token for better security
+      if (rotateToken) {
+        const newRefreshToken = this.generateRefreshToken();
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + this.REFRESH_TOKEN_EXPIRY_DAYS);
+
+        // Delete old refresh token
+        await this.refreshTokenModel.deleteMany({ _id: tokenDoc._id });
+
+        // Save new refresh token
+        await this.refreshTokenModel.save({
+          token: newRefreshToken,
+          accountId: user._id as string,
+          expiresAt,
+        });
+
+        return { accessToken: newAccessToken, refreshToken: newRefreshToken };
+      }
 
       return { accessToken: newAccessToken };
     } catch (error) {

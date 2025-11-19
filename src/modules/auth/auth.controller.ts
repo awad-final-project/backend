@@ -16,9 +16,24 @@ export class AuthController {
   }
 
   @Post('login')
-  async logIn(@Body() data: LogInDto) {
+  async logIn(
+    @Body() data: LogInDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const { email, password } = data;
-    return this.authService.loginUser(email, password);
+    const result = await this.authService.loginUser(email, password);
+    
+    // If using cookie authentication, set httpOnly cookie
+    if (process.env.USE_COOKIE_AUTH === 'true') {
+      res.cookie('refreshToken', result.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+    }
+    
+    return result;
   }
 
   @Get('auth/google')
@@ -41,13 +56,48 @@ export class AuthController {
   }
 
   @Post('refresh')
-  async refresh(@Body('refreshToken') refreshToken: string) {
-    return this.authService.refreshToken(refreshToken);
+  async refresh(
+    @Body('refreshToken') refreshToken: string,
+    @Req() req: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // Support both cookie and body-based refresh tokens
+    const token = req.cookies?.refreshToken || refreshToken;
+    
+    if (!token) {
+      throw new Error('Refresh token not provided');
+    }
+    
+    const result = await this.authService.refreshToken(token);
+    
+    // If using cookies, set the new refresh token in httpOnly cookie
+    if (req.cookies?.refreshToken && process.env.USE_COOKIE_AUTH === 'true') {
+      res.cookie('refreshToken', result.refreshToken || token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+    }
+    
+    return result;
   }
 
   @Post('logout')
   @UseGuards(JwtAuthGuard)
-  async logout(@CurrentUser() user: { userId: string }) {
+  async logout(
+    @CurrentUser() user: { userId: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // Clear httpOnly cookie if using cookie authentication
+    if (process.env.USE_COOKIE_AUTH === 'true') {
+      res.clearCookie('refreshToken', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+      });
+    }
+    
     return this.authService.logout(user.userId);
   }
 
