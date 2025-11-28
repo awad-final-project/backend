@@ -8,6 +8,8 @@ type IAccount = {
   email: string;
   password?: string;
   googleId?: string;
+  googleAccessToken?: string;
+  googleRefreshToken?: string;
   authProvider?: 'local' | 'google';
   role?: string;
 };
@@ -32,6 +34,12 @@ export class Account extends Document implements IAccount {
 
   @Prop({ unique: true, sparse: true })
   googleId?: string;
+
+  @Prop()
+  googleAccessToken?: string;
+
+  @Prop()
+  googleRefreshToken?: string;
 
   @Prop({ default: 'local' })
   authProvider: 'local' | 'google';

@@ -235,6 +235,8 @@ export class AuthService {
     firstName: string;
     lastName: string;
     picture: string;
+    accessToken: string;
+    refreshToken?: string;
   }) {
     try {
       // Check if user exists with googleId
@@ -248,6 +250,10 @@ export class AuthService {
           // Link Google account to existing local account
           user.googleId = googleProfile.googleId;
           user.authProvider = 'google';
+          user.googleAccessToken = googleProfile.accessToken;
+          if (googleProfile.refreshToken) {
+            user.googleRefreshToken = googleProfile.refreshToken;
+          }
           await this.accountModel.save(user);
         } else {
           // Create new Google user
@@ -258,9 +264,20 @@ export class AuthService {
             googleId: googleProfile.googleId,
             authProvider: 'google',
             role: 'user',
+            googleAccessToken: googleProfile.accessToken,
+            googleRefreshToken: googleProfile.refreshToken,
           });
         }
+      } else {
+        // Update tokens for existing user
+        user.googleAccessToken = googleProfile.accessToken;
+        if (googleProfile.refreshToken) {
+          user.googleRefreshToken = googleProfile.refreshToken;
+        }
+        await this.accountModel.save(user);
       }
+
+      // Generate tokens
 
       // Generate tokens
       const accessToken = await this.generateAccessToken(

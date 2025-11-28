@@ -3,6 +3,8 @@ import { EmailModel } from '../../libs/database/src/models';
 import { AccountModel } from '../../libs/database/src/models';
 import { SendEmailDto } from '../../libs/dtos';
 import { faker } from '@faker-js/faker';
+import { google } from 'googleapis';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class EmailService {
@@ -11,9 +13,51 @@ export class EmailService {
   constructor(
     private readonly emailModel: EmailModel,
     private readonly accountModel: AccountModel,
+    private readonly configService: ConfigService,
   ) {}
 
+  private async getGmailClient(userId: string) {
+    const user = await this.accountModel.findOne({ _id: userId });
+    if (!user || !user.googleAccessToken) return null;
+
+    const oauth2Client = new google.auth.OAuth2(
+      this.configService.get('GOOGLE_CLIENT_ID'),
+      this.configService.get('GOOGLE_CLIENT_SECRET'),
+      this.configService.get('GOOGLE_CALLBACK_URL'),
+    );
+
+    oauth2Client.setCredentials({
+      access_token: user.googleAccessToken,
+      refresh_token: user.googleRefreshToken,
+    });
+
+    return google.gmail({ version: 'v1', auth: oauth2Client });
+  }
+
   async getMailboxes(userId: string) {
+    const gmail = await this.getGmailClient(userId);
+    if (gmail) {
+      try {
+        const { data: { labels } } = await gmail.users.labels.list({ userId: 'me' });
+        
+        const getCount = (labelId: string, isUnread = false) => {
+          const label = labels?.find(l => l.id === labelId);
+          return isUnread ? label?.messagesUnread || 0 : label?.messagesTotal || 0;
+        };
+
+        return [
+          { id: 'inbox', name: 'Inbox', count: getCount('INBOX', true), icon: 'inbox' },
+          { id: 'starred', name: 'Starred', count: getCount('STARRED'), icon: 'star' },
+          { id: 'sent', name: 'Sent', count: getCount('SENT'), icon: 'send' },
+          { id: 'drafts', name: 'Drafts', count: getCount('DRAFT'), icon: 'file' },
+          { id: 'archive', name: 'Archive', count: 0, icon: 'archive' },
+          { id: 'trash', name: 'Trash', count: getCount('TRASH'), icon: 'trash' },
+        ];
+      } catch (error) {
+        this.logger.warn(`Failed to fetch Gmail labels: ${error.message}`);
+      }
+    }
+
     try {
       const inboxCount = await this.emailModel.countDocuments({
         accountId: userId,
@@ -69,6 +113,56 @@ export class EmailService {
     page: number = 1,
     limit: number = 50,
   ) {
+    const gmail = await this.getGmailClient(userId);
+    if (gmail) {
+      try {
+        let labelId = 'INBOX';
+        if (folder === 'sent') labelId = 'SENT';
+        else if (folder === 'drafts') labelId = 'DRAFT';
+        else if (folder === 'trash') labelId = 'TRASH';
+        else if (folder === 'starred') labelId = 'STARRED';
+        else if (folder === 'archive') labelId = undefined;
+
+        const res = await gmail.users.messages.list({
+          userId: 'me',
+          labelIds: labelId ? [labelId] : undefined,
+          maxResults: limit,
+        });
+
+        const messages = res.data.messages || [];
+        const emailDetails = await Promise.all(messages.map(async (msg) => {
+          const { data } = await gmail.users.messages.get({ userId: 'me', id: msg.id });
+          const headers = data.payload.headers;
+          const subject = headers.find(h => h.name === 'Subject')?.value || '(No Subject)';
+          const from = headers.find(h => h.name === 'From')?.value || '';
+          const to = headers.find(h => h.name === 'To')?.value || '';
+          const date = headers.find(h => h.name === 'Date')?.value;
+          
+          return {
+            id: data.id,
+            from,
+            to,
+            subject,
+            preview: data.snippet,
+            isRead: !data.labelIds.includes('UNREAD'),
+            isStarred: data.labelIds.includes('STARRED'),
+            sentAt: date ? new Date(date) : new Date(),
+            folder: folder,
+          };
+        }));
+
+        return {
+          emails: emailDetails,
+          total: res.data.resultSizeEstimate || 0,
+          page,
+          limit,
+          totalPages: 1,
+        };
+      } catch (error) {
+        this.logger.warn(`Failed to fetch Gmail emails: ${error.message}`);
+      }
+    }
+
     try {
       const skip = (page - 1) * limit;
       let filter: any = { accountId: userId };
@@ -113,6 +207,52 @@ export class EmailService {
   }
 
   async getEmailById(userId: string, emailId: string) {
+    const gmail = await this.getGmailClient(userId);
+    if (gmail) {
+      try {
+        const { data } = await gmail.users.messages.get({ userId: 'me', id: emailId });
+        const headers = data.payload.headers;
+        const subject = headers.find(h => h.name === 'Subject')?.value || '(No Subject)';
+        const from = headers.find(h => h.name === 'From')?.value || '';
+        const to = headers.find(h => h.name === 'To')?.value || '';
+        const date = headers.find(h => h.name === 'Date')?.value;
+        
+        let body = data.snippet;
+        if (data.payload.body.data) {
+          body = Buffer.from(data.payload.body.data, 'base64').toString('utf-8');
+        } else if (data.payload.parts) {
+          const part = data.payload.parts.find(p => p.mimeType === 'text/html') || data.payload.parts.find(p => p.mimeType === 'text/plain');
+          if (part && part.body.data) {
+            body = Buffer.from(part.body.data, 'base64').toString('utf-8');
+          }
+        }
+
+        if (data.labelIds.includes('UNREAD')) {
+          await gmail.users.messages.modify({
+            userId: 'me',
+            id: emailId,
+            requestBody: { removeLabelIds: ['UNREAD'] },
+          });
+        }
+
+        return {
+          id: data.id,
+          from,
+          to,
+          subject,
+          body,
+          preview: data.snippet,
+          isRead: true,
+          isStarred: data.labelIds.includes('STARRED'),
+          sentAt: date ? new Date(date) : new Date(),
+          readAt: new Date(),
+          folder: 'inbox',
+        };
+      } catch (error) {
+        this.logger.warn(`Failed to fetch Gmail email detail: ${error.message}`);
+      }
+    }
+
     try {
       const email = await this.emailModel.findById(emailId);
 
@@ -158,6 +298,36 @@ export class EmailService {
   }
 
   async sendEmail(userId: string, userEmail: string, data: SendEmailDto) {
+    const gmail = await this.getGmailClient(userId);
+    if (gmail) {
+      try {
+        const subject = data.subject;
+        const to = data.to;
+        const body = data.body;
+        
+        const message = [
+          `To: ${to}`,
+          `Subject: ${subject}`,
+          'Content-Type: text/html; charset=utf-8',
+          '',
+          body
+        ].join('\n');
+
+        const encodedMessage = Buffer.from(message).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+        await gmail.users.messages.send({
+          userId: 'me',
+          requestBody: {
+            raw: encodedMessage,
+          },
+        });
+
+        return { message: 'Email sent successfully via Gmail' };
+      } catch (error) {
+        this.logger.warn(`Failed to send Gmail: ${error.message}`);
+      }
+    }
+
     try {
       const preview = data.body.substring(0, 100);
 
@@ -204,6 +374,31 @@ export class EmailService {
   }
 
   async toggleStar(userId: string, emailId: string) {
+    const gmail = await this.getGmailClient(userId);
+    if (gmail) {
+      try {
+        const { data } = await gmail.users.messages.get({ userId: 'me', id: emailId });
+        const isStarred = data.labelIds.includes('STARRED');
+        
+        if (isStarred) {
+          await gmail.users.messages.modify({
+            userId: 'me',
+            id: emailId,
+            requestBody: { removeLabelIds: ['STARRED'] },
+          });
+        } else {
+          await gmail.users.messages.modify({
+            userId: 'me',
+            id: emailId,
+            requestBody: { addLabelIds: ['STARRED'] },
+          });
+        }
+        return { message: 'Email starred status updated', isStarred: !isStarred };
+      } catch (error) {
+        this.logger.warn(`Failed to toggle star on Gmail: ${error.message}`);
+      }
+    }
+
     try {
       const email = await this.emailModel.findById(emailId);
 
@@ -234,6 +429,28 @@ export class EmailService {
   }
 
   async markAsRead(userId: string, emailId: string, isRead: boolean) {
+    const gmail = await this.getGmailClient(userId);
+    if (gmail) {
+      try {
+        if (isRead) {
+          await gmail.users.messages.modify({
+            userId: 'me',
+            id: emailId,
+            requestBody: { removeLabelIds: ['UNREAD'] },
+          });
+        } else {
+          await gmail.users.messages.modify({
+            userId: 'me',
+            id: emailId,
+            requestBody: { addLabelIds: ['UNREAD'] },
+          });
+        }
+        return { message: 'Email read status updated', isRead };
+      } catch (error) {
+        this.logger.warn(`Failed to mark as read on Gmail: ${error.message}`);
+      }
+    }
+
     try {
       const email = await this.emailModel.findById(emailId);
 
@@ -266,6 +483,16 @@ export class EmailService {
   }
 
   async deleteEmail(userId: string, emailId: string) {
+    const gmail = await this.getGmailClient(userId);
+    if (gmail) {
+      try {
+        await gmail.users.messages.trash({ userId: 'me', id: emailId });
+        return { message: 'Email moved to trash' };
+      } catch (error) {
+        this.logger.warn(`Failed to delete Gmail: ${error.message}`);
+      }
+    }
+
     try {
       const email = await this.emailModel.findById(emailId);
 
