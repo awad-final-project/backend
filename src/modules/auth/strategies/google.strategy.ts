@@ -21,7 +21,12 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       clientID: clientID || 'your_google_client_id',
       clientSecret: clientSecret || 'your_google_client_secret',
       callbackURL: callbackURL || 'http://localhost:3000/auth/google/callback',
-      scope: ['email', 'profile'],
+      scope: [
+        'email',
+        'profile',
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.send',
+      ],
     });
   }
 
@@ -39,6 +44,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       lastName: name.familyName,
       picture: photos[0].value,
       accessToken,
+      refreshToken,
     };
     done(null, user);
   }

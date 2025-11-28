@@ -28,7 +28,7 @@ export class AuthController {
       res.cookie('refreshToken', result.refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        sameSite: 'lax',
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       });
     }
@@ -48,6 +48,16 @@ export class AuthController {
     const googleProfile = req.user;
     const result = await this.authService.findOrCreateGoogleUser(googleProfile);
     
+    // If using cookie authentication, set httpOnly cookie
+    if (process.env.USE_COOKIE_AUTH === 'true') {
+      res.cookie('refreshToken', result.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax', // Use Lax for OAuth redirects to ensure cookie is set
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+    }
+
     // Redirect to frontend Google callback route with tokens in query params
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const callbackUrl = `${frontendUrl}/google-callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}&email=${result.email}&username=${encodeURIComponent(result.username)}`;
@@ -75,7 +85,7 @@ export class AuthController {
       res.cookie('refreshToken', result.refreshToken || token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        sameSite: 'lax',
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       });
     }
@@ -94,7 +104,7 @@ export class AuthController {
       res.clearCookie('refreshToken', {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        sameSite: 'lax',
       });
     }
     
