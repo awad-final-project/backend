@@ -282,10 +282,20 @@ export class EmailService {
         };
       } catch (error) {
         this.logger.error(`Failed to fetch Gmail email detail: ${error.message}`, error.stack);
-        // If it's a Gmail user, we probably shouldn't fall back to local DB for a Gmail ID
-        // But for safety/hybrid scenarios, we can let it fall through or return error
-        if (error.code === 404) {
+        
+        const statusCode = error.code || error.response?.status || 500;
+        
+        if (statusCode === 404) {
            throw new HttpException('Email not found in Gmail', HttpStatus.NOT_FOUND);
+        }
+
+        // If the ID is not a valid MongoDB ObjectId, it cannot be a local email.
+        // So this error must be relevant to the user.
+        if (!isValidObjectId(emailId)) {
+            throw new HttpException(
+                `Gmail API Error: ${error.message}`, 
+                statusCode >= 100 && statusCode < 600 ? statusCode : HttpStatus.INTERNAL_SERVER_ERROR
+            );
         }
       }
     }
