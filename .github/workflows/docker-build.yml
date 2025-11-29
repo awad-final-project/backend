@@ -48,6 +48,22 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      - name: Get sanitized branch name
+        if: github.ref_name != 'main' && github.ref_name != 'dev' && github.event_name == 'push'
+        id: branch_name
+        run: |
+          SANITIZED_NAME=$(echo "${{ github.ref_name }}" | sed 's/\//-/g' | tr '[:upper:]' '[:lower:]')
+          echo "sanitized_name=$SANITIZED_NAME" >> $GITHUB_OUTPUT
+
+      - name: Trigger DevOps Preview Deploy
+        if: github.ref_name != 'main' && github.ref_name != 'dev' && github.event_name == 'push'
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          repository: awad-final-project/devops
+          event-type: deploy-preview
+          client-payload: '{"app_name": "preview-${{ steps.branch_name.outputs.sanitized_name }}", "branch_backend": "${{ github.ref_name }}", "branch_frontend": "${{ github.ref_name }}", "domain_prefix": "preview-${{ steps.branch_name.outputs.sanitized_name }}"}'
+
       - name: Trigger deployment
         if: github.ref == 'refs/heads/main'
         run: |
