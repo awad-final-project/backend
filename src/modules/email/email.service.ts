@@ -507,16 +507,27 @@ export class EmailService {
     const originalFromEmail = this.extractEmailAddress(originalEmail.from);
     const userEmailNormalized = this.extractEmailAddress(userEmail);
 
+    this.logger.debug(
+      `Reply email: originalFrom=${originalFromEmail}, userEmail=${userEmailNormalized}, originalTo=${originalEmail.to}`,
+    );
+
     let recipients: string[];
     if (data.replyAll) {
+      // Split by comma and extract email addresses
       const originalToEmails = originalEmail.to
         .split(',')
-        .map((email: string) => this.extractEmailAddress(email.trim()));
-      const recipientsSet = new Set([originalFromEmail]);
+        .map((email: string) => this.extractEmailAddress(email.trim()))
+        .filter((email: string) => email && email.length > 0);
+      
+      const recipientsSet = new Set<string>();
+      
+      // Always include the original sender (the person who sent the email we're replying to)
+      if (originalFromEmail && originalFromEmail.toLowerCase() !== userEmailNormalized.toLowerCase()) {
+        recipientsSet.add(originalFromEmail);
+      }
 
       // Add original recipients, excluding current user
-      originalToEmails.forEach((email: string) => {
-        const emailAddr = this.extractEmailAddress(email);
+      originalToEmails.forEach((emailAddr: string) => {
         if (emailAddr && emailAddr.toLowerCase() !== userEmailNormalized.toLowerCase()) {
           recipientsSet.add(emailAddr);
         }
@@ -525,7 +536,22 @@ export class EmailService {
       recipients = Array.from(recipientsSet);
     } else {
       // Reply: only original sender
-      recipients = [originalFromEmail];
+      recipients = originalFromEmail && originalFromEmail.toLowerCase() !== userEmailNormalized.toLowerCase()
+        ? [originalFromEmail]
+        : [];
+    }
+
+    this.logger.debug(`Reply recipients: ${recipients.join(', ')}`);
+
+    // Validate that we have at least one recipient
+    if (recipients.length === 0) {
+      this.logger.error(
+        `No valid recipients found for reply. originalFrom=${originalFromEmail}, userEmail=${userEmailNormalized}`,
+      );
+      throw new HttpException(
+        'No valid recipients found for reply',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     const recipientsString = recipients.join(', ');
@@ -590,14 +616,22 @@ export class EmailService {
       });
 
       // Save to each recipient's inbox if they exist in our system
+      let savedCount = 0;
       for (const recipientEmail of recipients) {
+        // Normalize email for lookup (extract if needed)
+        const normalizedEmail = this.extractEmailAddress(recipientEmail);
+        if (!normalizedEmail) {
+          this.logger.warn(`Could not extract email from: ${recipientEmail}`);
+          continue;
+        }
+
         const recipient = await this.accountModel.findOne({
-          email: recipientEmail,
+          email: normalizedEmail,
         });
         if (recipient) {
           await this.emailModel.save({
             from: userEmail,
-            to: recipientEmail,
+            to: normalizedEmail,
             subject,
             body: data.body,
             preview,
@@ -607,7 +641,20 @@ export class EmailService {
             sentAt: new Date(),
             accountId: recipient._id as string,
           });
+          savedCount++;
+          this.logger.debug(`Saved reply email to inbox of ${normalizedEmail}`);
+        } else {
+          // Log warning if recipient not found in system
+          this.logger.warn(
+            `Recipient ${normalizedEmail} not found in system, email not saved to inbox`,
+          );
         }
+      }
+
+      if (savedCount === 0) {
+        this.logger.warn(
+          `No recipients found in system for reply. Recipients: ${recipients.join(', ')}`,
+        );
       }
 
       return { message: 'Reply sent successfully' };
