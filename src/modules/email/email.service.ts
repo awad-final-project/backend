@@ -577,17 +577,112 @@ export class EmailService {
     // Prepare reply body with original message
     const replyBody = `\n\n--- Original Message ---\nFrom: ${originalEmail.from}\nTo: ${originalEmail.to}\nDate: ${originalEmail.sentAt}\nSubject: ${originalEmail.subject}\n\n${originalEmail.body}\n\n--- Reply ---\n${data.body}`;
 
-    try {
-      // Call sendEmail to actually send the reply
-      console.log(`📧 Calling sendEmail to send reply. To: ${recipientsString}, Subject: ${subject}`);
-      const sendResult = await this.sendEmail(userId, userEmail, {
-        to: recipientsString,
-        subject: subject,
-        body: replyBody,
-      });
+    let gmailSent = false;
+    if (gmail) {
+      try {
+        // Send reply via Gmail API (similar to sendEmail)
+        const message = [
+          `To: ${recipientsString}`,
+          `Subject: ${subject}`,
+          `In-Reply-To: ${emailId}`,
+          `References: ${emailId}`,
+          'Content-Type: text/html; charset=utf-8',
+          '',
+          replyBody,
+        ].join('\n');
 
-      // Return the result from sendEmail
-      return sendResult;
+        const encodedMessage = Buffer.from(message)
+          .toString('base64')
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/, '');
+
+        await gmail.users.messages.send({
+          userId: 'me',
+          requestBody: {
+            raw: encodedMessage,
+          },
+        });
+
+        gmailSent = true;
+        console.log(`✅ Gmail reply sent successfully`);
+      } catch (error) {
+        this.logger.warn(`Failed to send Gmail reply: ${error.message}`);
+        console.log(`⚠️ Failed to send Gmail reply: ${error.message}`);
+      }
+    }
+
+    try {
+      const preview = replyBody.substring(0, 100);
+
+      // Save reply to sender's sent folder
+      console.log(`🟢 Saving reply to sender's sent folder. From: ${userEmail}, To: ${recipientsString}`);
+      const sentEmail = await this.emailModel.save({
+        from: userEmail,
+        to: recipientsString,
+        subject,
+        body: replyBody,
+        preview,
+        isRead: true,
+        isStarred: false,
+        folder: 'sent',
+        sentAt: new Date(),
+        accountId: userId,
+      });
+      console.log(`✅ Saved sent email with ID: ${sentEmail._id}`);
+
+      // Save to each recipient's inbox if they exist in our system
+      let savedCount = 0;
+      for (const recipientEmail of recipients) {
+        // Normalize email for lookup (extract if needed)
+        const normalizedEmail = this.extractEmailAddress(recipientEmail);
+        if (!normalizedEmail) {
+          console.log(`⚠️ Could not extract email from: ${recipientEmail}`);
+          this.logger.warn(`Could not extract email from: ${recipientEmail}`);
+          continue;
+        }
+
+        const recipient = await this.accountModel.findOne({
+          email: normalizedEmail,
+        });
+        if (recipient) {
+          console.log(`🟢 Saving reply to recipient's inbox. To: ${normalizedEmail}, RecipientID: ${recipient._id}`);
+          const inboxEmail = await this.emailModel.save({
+            from: userEmail,
+            to: normalizedEmail,
+            subject,
+            body: replyBody,
+            preview,
+            isRead: false,
+            isStarred: false,
+            folder: 'inbox',
+            sentAt: new Date(),
+            accountId: recipient._id as string,
+          });
+          savedCount++;
+          console.log(`✅ Saved inbox email with ID: ${inboxEmail._id} for ${normalizedEmail}`);
+          this.logger.debug(`Saved reply email to inbox of ${normalizedEmail}`);
+        } else {
+          // Log warning if recipient not found in system
+          console.log(`⚠️ Recipient ${normalizedEmail} not found in system`);
+          this.logger.warn(
+            `Recipient ${normalizedEmail} not found in system, email not saved to inbox`,
+          );
+        }
+      }
+
+      console.log(`📊 Reply process complete. Saved to ${savedCount} recipients.`);
+      if (savedCount === 0) {
+        console.log(
+          `⚠️ No recipients found in system for reply. Recipients: ${recipients.join(', ')}`,
+        );
+        this.logger.warn(
+          `No recipients found in system for reply. Recipients: ${recipients.join(', ')}`,
+        );
+      }
+
+      // Return appropriate message based on whether Gmail was used
+      return { message: gmailSent ? 'Reply sent successfully via Gmail' : 'Reply sent successfully' };
     } catch (error) {
       console.log(`🔴 Error in replyEmail:`, error);
       this.logger.error(error);
