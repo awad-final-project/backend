@@ -74,6 +74,19 @@ export class EmailService {
     return '';
   }
 
+  private extractEmailAddress(emailString: string): string {
+    if (!emailString) return '';
+
+    // Match format: "Name" <email@example.com>
+    const match = emailString.match(/<([^>]+)>/);
+    if (match) {
+      return match[1].trim();
+    }
+
+    // If no match, assume it's already a plain email address
+    return emailString.trim();
+  }
+
   async getMailboxes(userId: string) {
     const gmail = await this.getGmailClient(userId);
     if (gmail) {
@@ -490,24 +503,29 @@ export class EmailService {
       throw new HttpException('Original email not found', HttpStatus.NOT_FOUND);
     }
 
+    // Extract email addresses from formatted strings
+    const originalFromEmail = this.extractEmailAddress(originalEmail.from);
+    const userEmailNormalized = this.extractEmailAddress(userEmail);
+
     let recipients: string[];
     if (data.replyAll) {
       const originalToEmails = originalEmail.to
         .split(',')
-        .map((email: string) => email.trim());
-      const recipientsSet = new Set([originalEmail.from]);
+        .map((email: string) => this.extractEmailAddress(email.trim()));
+      const recipientsSet = new Set([originalFromEmail]);
 
       // Add original recipients, excluding current user
       originalToEmails.forEach((email: string) => {
-        if (email.toLowerCase() !== userEmail.toLowerCase()) {
-          recipientsSet.add(email);
+        const emailAddr = this.extractEmailAddress(email);
+        if (emailAddr && emailAddr.toLowerCase() !== userEmailNormalized.toLowerCase()) {
+          recipientsSet.add(emailAddr);
         }
       });
 
       recipients = Array.from(recipientsSet);
     } else {
       // Reply: only original sender
-      recipients = [originalEmail.from];
+      recipients = [originalFromEmail];
     }
 
     const recipientsString = recipients.join(', ');
