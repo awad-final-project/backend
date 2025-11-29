@@ -1,0 +1,46 @@
+name: Trigger Preview Deploy
+
+on:
+  push:
+    branches-ignore:
+      - 'main'
+      - 'dev'
+  delete:
+
+jobs:
+  deploy:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get sanitized branch name
+        id: branch_name
+        run: |
+          # Replace / with - and convert to lowercase for URL/Docker compatibility
+          SANITIZED_NAME=$(echo "${{ github.ref_name }}" | sed 's/\//-/g' | tr '[:upper:]' '[:lower:]')
+          echo "sanitized_name=$SANITIZED_NAME" >> $GITHUB_OUTPUT
+
+      - name: Trigger DevOps Deploy
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          repository: awad-final-project/devops
+          event-type: deploy-preview
+          client-payload: '{"app_name": "preview-${{ steps.branch_name.outputs.sanitized_name }}", "branch_backend": "${{ github.ref_name }}", "branch_frontend": "dev", "domain_prefix": "preview-${{ steps.branch_name.outputs.sanitized_name }}"}'
+
+  destroy:
+    if: github.event_name == 'delete' && github.event.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get sanitized branch name
+        id: branch_name
+        run: |
+          SANITIZED_NAME=$(echo "${{ github.event.ref }}" | sed 's/\//-/g' | tr '[:upper:]' '[:lower:]')
+          echo "sanitized_name=$SANITIZED_NAME" >> $GITHUB_OUTPUT
+
+      - name: Trigger DevOps Destroy
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          repository: awad-final-project/devops
+          event-type: destroy-preview
+          client-payload: '{"app_name": "preview-${{ steps.branch_name.outputs.sanitized_name }}"}'

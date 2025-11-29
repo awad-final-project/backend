@@ -5,6 +5,7 @@ import { SendEmailDto } from '../../libs/dtos';
 import { faker } from '@faker-js/faker';
 import { google } from 'googleapis';
 import { ConfigService } from '@nestjs/config';
+import { isValidObjectId } from 'mongoose';
 
 @Injectable()
 export class EmailService {
@@ -32,6 +33,45 @@ export class EmailService {
     });
 
     return google.gmail({ version: 'v1', auth: oauth2Client });
+  }
+
+  private extractBody(payload: any): string {
+    if (!payload) return '';
+
+    let data = payload.body?.data;
+    
+    if (data) {
+      // Handle base64url decoding manually to be safe across node versions
+      data = data.replace(/-/g, '+').replace(/_/g, '/');
+      // Pad with =
+      while (data.length % 4) {
+        data += '=';
+      }
+      return Buffer.from(data, 'base64').toString('utf-8');
+    }
+    
+    if (payload.parts) {
+      // Priority: text/html -> text/plain -> multipart/*
+      let part = payload.parts.find((p: any) => p.mimeType === 'text/html');
+      
+      if (!part) {
+        part = payload.parts.find((p: any) => p.mimeType === 'text/plain');
+      }
+      
+      if (part) {
+        return this.extractBody(part);
+      }
+      
+      // If no direct text part, look into nested multiparts
+      for (const p of payload.parts) {
+        if (p.mimeType?.startsWith('multipart/')) {
+          const body = this.extractBody(p);
+          if (body) return body;
+        }
+      }
+    }
+    
+    return '';
   }
 
   async getMailboxes(userId: string) {
@@ -217,15 +257,7 @@ export class EmailService {
         const to = headers.find(h => h.name === 'To')?.value || '';
         const date = headers.find(h => h.name === 'Date')?.value;
         
-        let body = data.snippet;
-        if (data.payload.body.data) {
-          body = Buffer.from(data.payload.body.data, 'base64').toString('utf-8');
-        } else if (data.payload.parts) {
-          const part = data.payload.parts.find(p => p.mimeType === 'text/html') || data.payload.parts.find(p => p.mimeType === 'text/plain');
-          if (part && part.body.data) {
-            body = Buffer.from(part.body.data, 'base64').toString('utf-8');
-          }
-        }
+        const body = this.extractBody(data.payload) || data.snippet;
 
         if (data.labelIds.includes('UNREAD')) {
           await gmail.users.messages.modify({
@@ -249,11 +281,30 @@ export class EmailService {
           folder: 'inbox',
         };
       } catch (error) {
-        this.logger.warn(`Failed to fetch Gmail email detail: ${error.message}`);
+        this.logger.error(`Failed to fetch Gmail email detail: ${error.message}`, error.stack);
+        
+        const statusCode = error.code || error.response?.status || 500;
+        
+        if (statusCode === 404) {
+           throw new HttpException('Email not found in Gmail', HttpStatus.NOT_FOUND);
+        }
+
+        // If the ID is not a valid MongoDB ObjectId, it cannot be a local email.
+        // So this error must be relevant to the user.
+        if (!isValidObjectId(emailId)) {
+            throw new HttpException(
+                `Gmail API Error: ${error.message}`, 
+                statusCode >= 100 && statusCode < 600 ? statusCode : HttpStatus.INTERNAL_SERVER_ERROR
+            );
+        }
       }
     }
 
     try {
+      if (!isValidObjectId(emailId)) {
+        throw new HttpException('Email not found', HttpStatus.NOT_FOUND);
+      }
+
       const email = await this.emailModel.findById(emailId);
 
       if (!email) {
