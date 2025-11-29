@@ -449,9 +449,9 @@ export class EmailService {
     try {
       const preview = data.body.substring(0, 100);
 
-      // Save to sender's sent folder - USE create() NOT save()
+      // Save to sender's sent folder
       console.log(`🟢 Saving email to sender's sent folder. From: ${userEmail}, To: ${data.to}`);
-      const sentEmail = await this.emailModel.create({
+      const sentEmail = await this.emailModel.save({
         from: userEmail,
         to: data.to,
         subject: data.subject,
@@ -470,7 +470,7 @@ export class EmailService {
       if (recipient) {
         // Save to recipient's inbox
         console.log(`🟢 Saving email to recipient's inbox. To: ${data.to}, RecipientID: ${recipient._id}`);
-        const inboxEmail = await this.emailModel.create({
+        const inboxEmail = await this.emailModel.save({
           from: userEmail,
           to: data.to,
           subject: data.subject,
@@ -615,9 +615,9 @@ export class EmailService {
         ? originalEmail.subject
         : `Re: ${originalEmail.subject}`;
 
-      // Save reply to sender's sent folder - USE create() NOT save()
+      // Save reply to sender's sent folder
       console.log(`🟢 Saving reply to sender's sent folder. From: ${userEmail}, To: ${recipientsString}`);
-      const sentEmail = await this.emailModel.create({
+      const sentEmail = await this.emailModel.save({
         from: userEmail,
         to: recipientsString,
         subject,
@@ -647,7 +647,7 @@ export class EmailService {
         });
         if (recipient) {
           console.log(`🟢 Saving reply to recipient's inbox. To: ${normalizedEmail}, RecipientID: ${recipient._id}`);
-          const inboxEmail = await this.emailModel.create({
+          const inboxEmail = await this.emailModel.save({
             from: userEmail,
             to: normalizedEmail,
             subject,
@@ -988,9 +988,9 @@ export class EmailService {
         });
       }
 
-      // Use create() instead of save() for each email
+      // Use save() to create each email
       for (const email of mockEmails) {
-        await this.emailModel.create(email);
+        await this.emailModel.save(email);
       }
 
       return {
