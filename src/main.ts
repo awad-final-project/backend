@@ -26,7 +26,7 @@ async function createApp() {
 
   const config = new DocumentBuilder()
     .setTitle('Email Application API')
-    .setDescription('Email Application API description')
+    .setDescription('API documentation for the Email Application')
     .setVersion('1.0')
     .addBearerAuth()
     .build();
