@@ -41,9 +41,7 @@ export class EmailService {
     let data = payload.body?.data;
 
     if (data) {
-      // Handle base64url decoding manually to be safe across node versions
       data = data.replace(/-/g, '+').replace(/_/g, '/');
-      // Pad with =
       while (data.length % 4) {
         data += '=';
       }
@@ -51,7 +49,6 @@ export class EmailService {
     }
 
     if (payload.parts) {
-      // Priority: text/html -> text/plain -> multipart/*
       let part = payload.parts.find((p: any) => p.mimeType === 'text/html');
 
       if (!part) {
@@ -62,7 +59,6 @@ export class EmailService {
         return this.extractBody(part);
       }
 
-      // If no direct text part, look into nested multiparts
       for (const p of payload.parts) {
         if (p.mimeType?.startsWith('multipart/')) {
           const body = this.extractBody(p);
@@ -77,13 +73,11 @@ export class EmailService {
   private extractEmailAddress(emailString: string): string {
     if (!emailString) return '';
 
-    // Match format: "Name" <email@example.com>
     const match = emailString.match(/<([^>]+)>/);
     if (match) {
       return match[1].trim();
     }
 
-    // If no match, assume it's already a plain email address
     return emailString.trim();
   }
 
@@ -350,8 +344,6 @@ export class EmailService {
           );
         }
 
-        // If the ID is not a valid MongoDB ObjectId, it cannot be a local email.
-        // So this error must be relevant to the user.
         if (!isValidObjectId(emailId)) {
           throw new HttpException(
             `Gmail API Error: ${error.message}`,
@@ -378,7 +370,6 @@ export class EmailService {
         throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
       }
 
-      // Mark as read if not already
       if (!email.isRead) {
         await this.emailModel.updateOne(
           { _id: emailId },
@@ -449,8 +440,6 @@ export class EmailService {
     try {
       const preview = data.body.substring(0, 100);
 
-      // Save to sender's sent folder
-      console.log(`🟢 Saving email to sender's sent folder. From: ${userEmail}, To: ${data.to}`);
       const sentEmail = await this.emailModel.save({
         from: userEmail,
         to: data.to,
@@ -463,13 +452,9 @@ export class EmailService {
         sentAt: new Date(),
         accountId: userId,
       });
-      console.log(`✅ Saved sent email with ID: ${sentEmail._id}`);
 
-      // Check if recipient exists in our system
       const recipient = await this.accountModel.findOne({ email: data.to });
       if (recipient) {
-        // Save to recipient's inbox
-        console.log(`🟢 Saving email to recipient's inbox. To: ${data.to}, RecipientID: ${recipient._id}`);
         const inboxEmail = await this.emailModel.save({
           from: userEmail,
           to: data.to,
@@ -482,14 +467,10 @@ export class EmailService {
           sentAt: new Date(),
           accountId: recipient._id as string,
         });
-        console.log(`✅ Saved inbox email with ID: ${inboxEmail._id}`);
-      } else {
-        console.log(`ℹ️ Recipient ${data.to} not found in system`);
       }
 
       return { message: 'Email sent successfully' };
     } catch (error) {
-      console.log(`🔴 Error in sendEmail:`, error);
       this.logger.error(error);
       throw new HttpException(
         'Error sending email',
@@ -510,20 +491,15 @@ export class EmailService {
       throw new HttpException('Original email not found', HttpStatus.NOT_FOUND);
     }
 
-    // Extract email addresses from formatted strings
     const originalFromEmail = this.extractEmailAddress(originalEmail.from);
     const userEmailNormalized = this.extractEmailAddress(userEmail);
 
-    console.log(
-      `🔵 Reply email START: originalFrom=${originalFromEmail}, userEmail=${userEmailNormalized}, originalTo=${originalEmail.to}`,
-    );
     this.logger.debug(
       `Reply email: originalFrom=${originalFromEmail}, userEmail=${userEmailNormalized}, originalTo=${originalEmail.to}`,
     );
 
     let recipients: string[];
     if (data.replyAll) {
-      // Split by comma and extract email addresses
       const originalToEmails = originalEmail.to
         .split(',')
         .map((email: string) => this.extractEmailAddress(email.trim()))
@@ -531,12 +507,10 @@ export class EmailService {
       
       const recipientsSet = new Set<string>();
       
-      // Always include the original sender (the person who sent the email we're replying to)
       if (originalFromEmail && originalFromEmail.toLowerCase() !== userEmailNormalized.toLowerCase()) {
         recipientsSet.add(originalFromEmail);
       }
 
-      // Add original recipients, excluding current user
       originalToEmails.forEach((emailAddr: string) => {
         if (emailAddr && emailAddr.toLowerCase() !== userEmailNormalized.toLowerCase()) {
           recipientsSet.add(emailAddr);
@@ -545,20 +519,14 @@ export class EmailService {
 
       recipients = Array.from(recipientsSet);
     } else {
-      // Reply: only original sender
       recipients = originalFromEmail && originalFromEmail.toLowerCase() !== userEmailNormalized.toLowerCase()
         ? [originalFromEmail]
         : [];
     }
 
-    console.log(`🔵 Reply recipients: ${recipients.join(', ')}`);
     this.logger.debug(`Reply recipients: ${recipients.join(', ')}`);
 
-    // Validate that we have at least one recipient
     if (recipients.length === 0) {
-      console.log(
-        `🔴 No valid recipients found for reply. originalFrom=${originalFromEmail}, userEmail=${userEmailNormalized}`,
-      );
       this.logger.error(
         `No valid recipients found for reply. originalFrom=${originalFromEmail}, userEmail=${userEmailNormalized}`,
       );
@@ -574,13 +542,11 @@ export class EmailService {
       ? originalEmail.subject
       : `Re: ${originalEmail.subject}`;
 
-    // Prepare reply body with original message
     const replyBody = `\n\n--- Original Message ---\nFrom: ${originalEmail.from}\nTo: ${originalEmail.to}\nDate: ${originalEmail.sentAt}\nSubject: ${originalEmail.subject}\n\n${originalEmail.body}\n\n--- Reply ---\n${data.body}`;
 
     let gmailSent = false;
     if (gmail) {
       try {
-        // Send reply via Gmail API (similar to sendEmail)
         const message = [
           `To: ${recipientsString}`,
           `Subject: ${subject}`,
@@ -605,18 +571,14 @@ export class EmailService {
         });
 
         gmailSent = true;
-        console.log(`✅ Gmail reply sent successfully`);
       } catch (error) {
         this.logger.warn(`Failed to send Gmail reply: ${error.message}`);
-        console.log(`⚠️ Failed to send Gmail reply: ${error.message}`);
       }
     }
 
     try {
       const preview = replyBody.substring(0, 100);
 
-      // Save reply to sender's sent folder
-      console.log(`🟢 Saving reply to sender's sent folder. From: ${userEmail}, To: ${recipientsString}`);
       const sentEmail = await this.emailModel.save({
         from: userEmail,
         to: recipientsString,
@@ -629,15 +591,11 @@ export class EmailService {
         sentAt: new Date(),
         accountId: userId,
       });
-      console.log(`✅ Saved sent email with ID: ${sentEmail._id}`);
 
-      // Save to each recipient's inbox if they exist in our system
       let savedCount = 0;
       for (const recipientEmail of recipients) {
-        // Normalize email for lookup (extract if needed)
         const normalizedEmail = this.extractEmailAddress(recipientEmail);
         if (!normalizedEmail) {
-          console.log(`⚠️ Could not extract email from: ${recipientEmail}`);
           this.logger.warn(`Could not extract email from: ${recipientEmail}`);
           continue;
         }
@@ -646,7 +604,6 @@ export class EmailService {
           email: normalizedEmail,
         });
         if (recipient) {
-          console.log(`🟢 Saving reply to recipient's inbox. To: ${normalizedEmail}, RecipientID: ${recipient._id}`);
           const inboxEmail = await this.emailModel.save({
             from: userEmail,
             to: normalizedEmail,
@@ -660,31 +617,22 @@ export class EmailService {
             accountId: recipient._id as string,
           });
           savedCount++;
-          console.log(`✅ Saved inbox email with ID: ${inboxEmail._id} for ${normalizedEmail}`);
           this.logger.debug(`Saved reply email to inbox of ${normalizedEmail}`);
         } else {
-          // Log warning if recipient not found in system
-          console.log(`⚠️ Recipient ${normalizedEmail} not found in system`);
           this.logger.warn(
             `Recipient ${normalizedEmail} not found in system, email not saved to inbox`,
           );
         }
       }
 
-      console.log(`📊 Reply process complete. Saved to ${savedCount} recipients.`);
       if (savedCount === 0) {
-        console.log(
-          `⚠️ No recipients found in system for reply. Recipients: ${recipients.join(', ')}`,
-        );
         this.logger.warn(
           `No recipients found in system for reply. Recipients: ${recipients.join(', ')}`,
         );
       }
 
-      // Return appropriate message based on whether Gmail was used
       return { message: gmailSent ? 'Reply sent successfully via Gmail' : 'Reply sent successfully' };
     } catch (error) {
-      console.log(`🔴 Error in replyEmail:`, error);
       this.logger.error(error);
       throw new HttpException(
         'Error sending reply',
@@ -936,11 +884,9 @@ export class EmailService {
       }
 
       if (email.folder === 'trash') {
-        // Permanently delete
         await this.emailModel.deleteOne({ _id: emailId });
         return { message: 'Email permanently deleted' };
       } else {
-        // Move to trash
         await this.emailModel.updateOne({ _id: emailId }, { folder: 'trash' });
         return { message: 'Email moved to trash' };
       }
@@ -958,7 +904,6 @@ export class EmailService {
 
   async seedMockEmails(userId: string, userEmail: string) {
     try {
-      // Check if user already has emails
       const existingEmails = await this.emailModel.countDocuments({
         accountId: userId,
       });
@@ -969,7 +914,6 @@ export class EmailService {
       const mockEmails = [];
       const folders = ['inbox', 'sent', 'drafts', 'archive'];
 
-      // Create 30 mock emails
       for (let i = 0; i < 30; i++) {
         const isIncoming = Math.random() > 0.5;
         const folder = folders[Math.floor(Math.random() * folders.length)];
@@ -989,7 +933,6 @@ export class EmailService {
         });
       }
 
-      // Use save() to create each email
       for (const email of mockEmails) {
         await this.emailModel.save(email);
       }
