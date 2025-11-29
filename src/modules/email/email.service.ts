@@ -449,8 +449,9 @@ export class EmailService {
     try {
       const preview = data.body.substring(0, 100);
 
-      // Save to sender's sent folder
-      await this.emailModel.save({
+      // Save to sender's sent folder - USE create() NOT save()
+      console.log(`🟢 Saving email to sender's sent folder. From: ${userEmail}, To: ${data.to}`);
+      const sentEmail = await this.emailModel.create({
         from: userEmail,
         to: data.to,
         subject: data.subject,
@@ -462,12 +463,14 @@ export class EmailService {
         sentAt: new Date(),
         accountId: userId,
       });
+      console.log(`✅ Saved sent email with ID: ${sentEmail._id}`);
 
       // Check if recipient exists in our system
       const recipient = await this.accountModel.findOne({ email: data.to });
       if (recipient) {
         // Save to recipient's inbox
-        await this.emailModel.save({
+        console.log(`🟢 Saving email to recipient's inbox. To: ${data.to}, RecipientID: ${recipient._id}`);
+        const inboxEmail = await this.emailModel.create({
           from: userEmail,
           to: data.to,
           subject: data.subject,
@@ -479,10 +482,14 @@ export class EmailService {
           sentAt: new Date(),
           accountId: recipient._id as string,
         });
+        console.log(`✅ Saved inbox email with ID: ${inboxEmail._id}`);
+      } else {
+        console.log(`ℹ️ Recipient ${data.to} not found in system`);
       }
 
       return { message: 'Email sent successfully' };
     } catch (error) {
+      console.log(`🔴 Error in sendEmail:`, error);
       this.logger.error(error);
       throw new HttpException(
         'Error sending email',
@@ -507,6 +514,9 @@ export class EmailService {
     const originalFromEmail = this.extractEmailAddress(originalEmail.from);
     const userEmailNormalized = this.extractEmailAddress(userEmail);
 
+    console.log(
+      `🔵 Reply email START: originalFrom=${originalFromEmail}, userEmail=${userEmailNormalized}, originalTo=${originalEmail.to}`,
+    );
     this.logger.debug(
       `Reply email: originalFrom=${originalFromEmail}, userEmail=${userEmailNormalized}, originalTo=${originalEmail.to}`,
     );
@@ -541,10 +551,14 @@ export class EmailService {
         : [];
     }
 
+    console.log(`🔵 Reply recipients: ${recipients.join(', ')}`);
     this.logger.debug(`Reply recipients: ${recipients.join(', ')}`);
 
     // Validate that we have at least one recipient
     if (recipients.length === 0) {
+      console.log(
+        `🔴 No valid recipients found for reply. originalFrom=${originalFromEmail}, userEmail=${userEmailNormalized}`,
+      );
       this.logger.error(
         `No valid recipients found for reply. originalFrom=${originalFromEmail}, userEmail=${userEmailNormalized}`,
       );
@@ -601,8 +615,9 @@ export class EmailService {
         ? originalEmail.subject
         : `Re: ${originalEmail.subject}`;
 
-      // Save reply to sender's sent folder
-      await this.emailModel.save({
+      // Save reply to sender's sent folder - USE create() NOT save()
+      console.log(`🟢 Saving reply to sender's sent folder. From: ${userEmail}, To: ${recipientsString}`);
+      const sentEmail = await this.emailModel.create({
         from: userEmail,
         to: recipientsString,
         subject,
@@ -614,6 +629,7 @@ export class EmailService {
         sentAt: new Date(),
         accountId: userId,
       });
+      console.log(`✅ Saved sent email with ID: ${sentEmail._id}`);
 
       // Save to each recipient's inbox if they exist in our system
       let savedCount = 0;
@@ -621,6 +637,7 @@ export class EmailService {
         // Normalize email for lookup (extract if needed)
         const normalizedEmail = this.extractEmailAddress(recipientEmail);
         if (!normalizedEmail) {
+          console.log(`⚠️ Could not extract email from: ${recipientEmail}`);
           this.logger.warn(`Could not extract email from: ${recipientEmail}`);
           continue;
         }
@@ -629,7 +646,8 @@ export class EmailService {
           email: normalizedEmail,
         });
         if (recipient) {
-          await this.emailModel.save({
+          console.log(`🟢 Saving reply to recipient's inbox. To: ${normalizedEmail}, RecipientID: ${recipient._id}`);
+          const inboxEmail = await this.emailModel.create({
             from: userEmail,
             to: normalizedEmail,
             subject,
@@ -642,16 +660,22 @@ export class EmailService {
             accountId: recipient._id as string,
           });
           savedCount++;
+          console.log(`✅ Saved inbox email with ID: ${inboxEmail._id} for ${normalizedEmail}`);
           this.logger.debug(`Saved reply email to inbox of ${normalizedEmail}`);
         } else {
           // Log warning if recipient not found in system
+          console.log(`⚠️ Recipient ${normalizedEmail} not found in system`);
           this.logger.warn(
             `Recipient ${normalizedEmail} not found in system, email not saved to inbox`,
           );
         }
       }
 
+      console.log(`📊 Reply process complete. Saved to ${savedCount} recipients.`);
       if (savedCount === 0) {
+        console.log(
+          `⚠️ No recipients found in system for reply. Recipients: ${recipients.join(', ')}`,
+        );
         this.logger.warn(
           `No recipients found in system for reply. Recipients: ${recipients.join(', ')}`,
         );
@@ -659,6 +683,7 @@ export class EmailService {
 
       return { message: 'Reply sent successfully' };
     } catch (error) {
+      console.log(`🔴 Error in replyEmail:`, error);
       this.logger.error(error);
       throw new HttpException(
         'Error sending reply',
@@ -963,8 +988,9 @@ export class EmailService {
         });
       }
 
+      // Use create() instead of save() for each email
       for (const email of mockEmails) {
-        await this.emailModel.save(email);
+        await this.emailModel.create(email);
       }
 
       return {
