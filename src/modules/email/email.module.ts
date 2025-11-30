@@ -4,7 +4,11 @@ import { PassportModule } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
 import { EmailController } from './email.controller';
 import { EmailService } from './email.service';
-import { EmailModelModule, AccountModelModule, AccessTokenModelModule } from '../../libs/database/src/models';
+import { AttachmentService } from './attachment.service';
+import { EmailModelModule, AccountModelModule, AccessTokenModelModule, AttachmentModelModule } from '../../libs/database/src/models';
+import { StorageModule } from '../storage';
+import { MailModule } from '../mailer';
+import { ImapModule } from '../imap';
 
 @Module({
   imports: [
@@ -19,8 +23,13 @@ import { EmailModelModule, AccountModelModule, AccessTokenModelModule } from '..
     EmailModelModule,
     AccountModelModule,
     AccessTokenModelModule,
+    AttachmentModelModule,
+    StorageModule,
+    MailModule,
+    ImapModule,
   ],
   controllers: [EmailController],
-  providers: [EmailService],
+  providers: [EmailService, AttachmentService],
+  exports: [EmailService, AttachmentService],
 })
 export class EmailModule {}

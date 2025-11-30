@@ -3,11 +3,22 @@ import { HydratedDocument, Document, Schema as MongooseSchema } from 'mongoose';
 
 export type EmailDocument = HydratedDocument<Email>;
 
+export interface IAttachmentRef {
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  s3Key: string;
+}
+
 type IEmail = {
   from: string;
   to: string;
+  cc?: string[];
+  bcc?: string[];
   subject: string;
   body: string;
+  htmlBody?: string;
   preview: string;
   isRead: boolean;
   isStarred: boolean;
@@ -15,6 +26,10 @@ type IEmail = {
   sentAt: Date;
   readAt?: Date;
   accountId: string;
+  messageId?: string;
+  inReplyTo?: string;
+  attachments?: IAttachmentRef[];
+  hasAttachments?: boolean;
 };
 
 @Schema({
@@ -58,6 +73,33 @@ export class Email extends Document implements IEmail {
 
   @Prop({ required: true, type: MongooseSchema.Types.ObjectId, ref: 'Account' })
   accountId: string;
+
+  @Prop({ type: [String], default: [] })
+  cc?: string[];
+
+  @Prop({ type: [String], default: [] })
+  bcc?: string[];
+
+  @Prop()
+  htmlBody?: string;
+
+  @Prop()
+  messageId?: string;
+
+  @Prop()
+  inReplyTo?: string;
+
+  @Prop({ type: [{ 
+    attachmentId: String, 
+    filename: String, 
+    mimeType: String, 
+    size: Number, 
+    s3Key: String 
+  }], default: [] })
+  attachments?: IAttachmentRef[];
+
+  @Prop({ default: false })
+  hasAttachments?: boolean;
 }
 
 export const EmailSchema = SchemaFactory.createForClass(Email);

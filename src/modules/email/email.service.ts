@@ -6,6 +6,9 @@ import { faker } from '@faker-js/faker';
 import { google } from 'googleapis';
 import { ConfigService } from '@nestjs/config';
 import { isValidObjectId } from 'mongoose';
+import { MailService } from '../mailer';
+import { AttachmentService } from './attachment.service';
+import { IAttachmentRef } from '../../libs/database/src/schemas/email.schema';
 
 @Injectable()
 export class EmailService {
@@ -15,6 +18,8 @@ export class EmailService {
     private readonly emailModel: EmailModel,
     private readonly accountModel: AccountModel,
     private readonly configService: ConfigService,
+    private readonly mailService: MailService,
+    private readonly attachmentService: AttachmentService,
   ) {}
 
   private async getGmailClient(userId: string) {
@@ -349,20 +354,75 @@ export class EmailService {
   }
 
   async sendEmail(userId: string, userEmail: string, data: SendEmailDto) {
+    // Prepare attachments data for database
+    const attachmentRefs: IAttachmentRef[] = data.attachments?.map(att => ({
+      attachmentId: att.attachmentId,
+      filename: att.filename,
+      mimeType: att.mimeType,
+      size: att.size,
+      s3Key: att.s3Key,
+    })) || [];
+    const hasAttachments = attachmentRefs.length > 0;
+
+    // Get attachment content for sending via SMTP/Gmail
+    const attachmentContents: Array<{ filename: string; content: Buffer; contentType: string }> = [];
+    if (hasAttachments) {
+      for (const att of data.attachments || []) {
+        try {
+          const { content, filename, mimeType } = await this.attachmentService.getAttachmentContent(att.attachmentId);
+          attachmentContents.push({ filename, content, contentType: mimeType });
+        } catch (error) {
+          this.logger.warn(`Failed to get attachment content: ${error.message}`);
+        }
+      }
+    }
+
     const gmail = await this.getGmailClient(userId);
     if (gmail) {
       try {
         const subject = data.subject;
         const to = data.to;
-        const body = data.body;
+        const body = data.htmlBody || data.body;
         
-        const message = [
-          `To: ${to}`,
-          `Subject: ${subject}`,
-          'Content-Type: text/html; charset=utf-8',
-          '',
-          body
-        ].join('\n');
+        // Build MIME message with attachments
+        const boundary = `----=_Part_${Date.now()}`;
+        let message = '';
+
+        if (hasAttachments && attachmentContents.length > 0) {
+          message = [
+            `To: ${to}`,
+            data.cc?.length ? `Cc: ${data.cc.join(', ')}` : '',
+            data.bcc?.length ? `Bcc: ${data.bcc.join(', ')}` : '',
+            `Subject: ${subject}`,
+            'MIME-Version: 1.0',
+            `Content-Type: multipart/mixed; boundary="${boundary}"`,
+            '',
+            `--${boundary}`,
+            'Content-Type: text/html; charset=utf-8',
+            '',
+            body,
+          ].filter(Boolean).join('\r\n');
+
+          // Add attachments
+          for (const att of attachmentContents) {
+            message += `\r\n--${boundary}\r\n`;
+            message += `Content-Type: ${att.contentType}; name="${att.filename}"\r\n`;
+            message += `Content-Disposition: attachment; filename="${att.filename}"\r\n`;
+            message += 'Content-Transfer-Encoding: base64\r\n\r\n';
+            message += att.content.toString('base64');
+          }
+          message += `\r\n--${boundary}--`;
+        } else {
+          message = [
+            `To: ${to}`,
+            data.cc?.length ? `Cc: ${data.cc.join(', ')}` : '',
+            data.bcc?.length ? `Bcc: ${data.bcc.join(', ')}` : '',
+            `Subject: ${subject}`,
+            'Content-Type: text/html; charset=utf-8',
+            '',
+            body
+          ].filter(Boolean).join('\r\n');
+        }
 
         const encodedMessage = Buffer.from(message).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
@@ -382,36 +442,72 @@ export class EmailService {
     try {
       const preview = data.body.substring(0, 100);
 
+      // Try to send via SMTP if configured
+      try {
+        await this.mailService.sendEmailWithAttachments(
+          data.to,
+          data.subject,
+          data.htmlBody || data.body,
+          attachmentContents,
+        );
+      } catch (smtpError) {
+        this.logger.warn(`SMTP send failed (will still save to database): ${smtpError.message}`);
+      }
+
       // Save to sender's sent folder
-      await this.emailModel.save({
+      const sentEmail = await this.emailModel.save({
         from: userEmail,
         to: data.to,
+        cc: data.cc,
+        bcc: data.bcc,
         subject: data.subject,
         body: data.body,
+        htmlBody: data.htmlBody,
         preview,
         isRead: true,
         isStarred: false,
         folder: 'sent',
         sentAt: new Date(),
         accountId: userId,
+        inReplyTo: data.inReplyTo,
+        attachments: attachmentRefs,
+        hasAttachments,
       });
+
+      // Link attachments to the email
+      if (hasAttachments) {
+        const attachmentIds = data.attachments?.map(att => att.attachmentId) || [];
+        await this.attachmentService.linkAttachmentsToEmail(attachmentIds, sentEmail._id.toString());
+      }
 
       // Check if recipient exists in our system
       const recipient = await this.accountModel.findOne({ email: data.to });
       if (recipient) {
         // Save to recipient's inbox
-        await this.emailModel.save({
+        const inboxEmail = await this.emailModel.save({
           from: userEmail,
           to: data.to,
+          cc: data.cc,
+          bcc: data.bcc,
           subject: data.subject,
           body: data.body,
+          htmlBody: data.htmlBody,
           preview,
           isRead: false,
           isStarred: false,
           folder: 'inbox',
           sentAt: new Date(),
           accountId: recipient._id as string,
+          inReplyTo: data.inReplyTo,
+          attachments: attachmentRefs,
+          hasAttachments,
         });
+
+        // Link attachments to recipient's email copy as well
+        if (hasAttachments) {
+          const attachmentIds = data.attachments?.map(att => att.attachmentId) || [];
+          await this.attachmentService.linkAttachmentsToEmail(attachmentIds, inboxEmail._id.toString());
+        }
       }
 
       return { message: 'Email sent successfully' };

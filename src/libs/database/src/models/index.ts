@@ -4,3 +4,4 @@ export * from './refresh-token';
 export * from './base-model';
 export * from './email.model';
 export * from './email.model.module';
+export * from './attachment';

@@ -7,24 +7,39 @@ import {
   Patch,
   Post,
   Query,
+  Res,
+  UploadedFile,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
+import { ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { EmailService } from './email.service';
+import { AttachmentService } from './attachment.service';
 import { JwtAuthGuard } from '../../libs/guards/jwt-auth.guard';
 import { CurrentUser } from '../../libs/decorators';
 import { SendEmailDto } from '../../libs/dtos';
 
+@ApiTags('Emails')
 @Controller('emails')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
 export class EmailController {
-  constructor(private readonly emailService: EmailService) {}
+  constructor(
+    private readonly emailService: EmailService,
+    private readonly attachmentService: AttachmentService,
+  ) {}
 
   @Get('mailboxes')
+  @ApiOperation({ summary: 'Get all mailboxes with unread counts' })
   async getMailboxes(@CurrentUser() user: { userId: string }) {
     return this.emailService.getMailboxes(user.userId);
   }
 
   @Get('folder/:folder')
+  @ApiOperation({ summary: 'Get emails by folder' })
   async getEmailsByFolder(
     @CurrentUser() user: { userId: string },
     @Param('folder') folder: string,
@@ -40,6 +55,7 @@ export class EmailController {
   }
 
   @Get(':id')
+  @ApiOperation({ summary: 'Get email by ID with full details' })
   async getEmailById(
     @CurrentUser() user: { userId: string },
     @Param('id') id: string,
@@ -48,6 +64,7 @@ export class EmailController {
   }
 
   @Post('send')
+  @ApiOperation({ summary: 'Send an email with optional attachments' })
   async sendEmail(
     @CurrentUser() user: { userId: string; email: string },
     @Body() data: SendEmailDto,
@@ -56,6 +73,7 @@ export class EmailController {
   }
 
   @Patch(':id/star')
+  @ApiOperation({ summary: 'Toggle star status of an email' })
   async toggleStar(
     @CurrentUser() user: { userId: string },
     @Param('id') id: string,
@@ -64,6 +82,7 @@ export class EmailController {
   }
 
   @Patch(':id/read')
+  @ApiOperation({ summary: 'Mark email as read/unread' })
   async markAsRead(
     @CurrentUser() user: { userId: string },
     @Param('id') id: string,
@@ -73,6 +92,7 @@ export class EmailController {
   }
 
   @Delete(':id')
+  @ApiOperation({ summary: 'Delete an email' })
   async deleteEmail(
     @CurrentUser() user: { userId: string },
     @Param('id') id: string,
@@ -81,7 +101,114 @@ export class EmailController {
   }
 
   @Post('seed')
+  @ApiOperation({ summary: 'Seed mock emails for testing' })
   async seedMockEmails(@CurrentUser() user: { userId: string; email: string }) {
     return this.emailService.seedMockEmails(user.userId, user.email);
+  }
+
+  // ==================== Attachment Endpoints ====================
+
+  @Post('attachments/upload')
+  @ApiOperation({ summary: 'Upload a single attachment' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @UseInterceptors(FileInterceptor('file', {
+    limits: {
+      fileSize: 25 * 1024 * 1024, // 25MB max file size
+    },
+  }))
+  async uploadAttachment(
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.attachmentService.uploadAttachment(file);
+  }
+
+  @Post('attachments/upload-multiple')
+  @ApiOperation({ summary: 'Upload multiple attachments' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        files: {
+          type: 'array',
+          items: {
+            type: 'string',
+            format: 'binary',
+          },
+        },
+      },
+    },
+  })
+  @UseInterceptors(FilesInterceptor('files', 10, {
+    limits: {
+      fileSize: 25 * 1024 * 1024, // 25MB max per file
+    },
+  }))
+  async uploadMultipleAttachments(
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
+    return this.attachmentService.uploadMultipleAttachments(files);
+  }
+
+  @Get('attachments/:attachmentId')
+  @ApiOperation({ summary: 'Get attachment metadata' })
+  async getAttachment(
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    return this.attachmentService.getAttachmentById(attachmentId);
+  }
+
+  @Get('attachments/:attachmentId/download')
+  @ApiOperation({ summary: 'Download attachment file' })
+  async downloadAttachment(
+    @Param('attachmentId') attachmentId: string,
+    @Res() res: Response,
+  ) {
+    const { stream, filename, mimeType, size } = await this.attachmentService.downloadAttachment(attachmentId);
+
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    res.setHeader('Content-Length', size);
+
+    stream.pipe(res);
+  }
+
+  @Get('attachments/:attachmentId/url')
+  @ApiOperation({ summary: 'Get signed download URL for attachment' })
+  async getDownloadUrl(
+    @Param('attachmentId') attachmentId: string,
+    @Query('expiresIn') expiresIn?: string,
+  ) {
+    const expires = expiresIn ? parseInt(expiresIn, 10) : 3600;
+    const url = await this.attachmentService.getDownloadUrl(attachmentId, expires);
+    return { url, expiresIn: expires };
+  }
+
+  @Delete('attachments/:attachmentId')
+  @ApiOperation({ summary: 'Delete an attachment' })
+  async deleteAttachment(
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    await this.attachmentService.deleteAttachment(attachmentId);
+    return { message: 'Attachment deleted successfully' };
+  }
+
+  @Get(':emailId/attachments')
+  @ApiOperation({ summary: 'Get all attachments for an email' })
+  async getEmailAttachments(
+    @Param('emailId') emailId: string,
+  ) {
+    return this.attachmentService.getAttachmentsByEmailId(emailId);
   }
 }
