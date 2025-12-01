@@ -6,6 +6,7 @@ import { faker } from '@faker-js/faker';
 import { google } from 'googleapis';
 import { ConfigService } from '@nestjs/config';
 import { isValidObjectId } from 'mongoose';
+import { simpleParser, ParsedMail } from 'mailparser';
 
 @Injectable()
 export class EmailService {
@@ -33,6 +34,40 @@ export class EmailService {
     });
 
     return google.gmail({ version: 'v1', auth: oauth2Client });
+  }
+
+  private async parseMessageWithMailparser(raw: string): Promise<{
+    text: string;
+    html: string;
+    attachments: {
+      filename: string | undefined;
+      contentType: string;
+      size: number;
+      contentDisposition: string | undefined;
+      cid: string | undefined;
+    }[];
+  }> {
+    try {
+      const parsed: ParsedMail = await simpleParser(raw);
+
+      return {
+        text: parsed.text || '',
+        html: typeof parsed.html === 'string' ? parsed.html : '',
+        attachments:
+          parsed.attachments?.map((att) => ({
+            filename: att.filename,
+            contentType: att.contentType,
+            size: att.size,
+            contentDisposition: att.contentDisposition,
+            cid: att.cid,
+          })) || [],
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Failed to parse message with mailparser: ${error.message}`,
+      );
+      return { text: '', html: '', attachments: [] };
+    }
   }
 
   private extractBody(payload: any): string {
@@ -296,9 +331,11 @@ export class EmailService {
     if (gmail) {
       try {
         const { data } = await gmail.users.messages.get({
-          userId: 'me',
-          id: emailId,
-        });
+        userId: 'me',
+        id: emailId,
+        format: 'raw',
+      });
+
         const headers = data.payload.headers;
         const subject =
           headers.find((h) => h.name === 'Subject')?.value || '(No Subject)';
@@ -306,7 +343,26 @@ export class EmailService {
         const to = headers.find((h) => h.name === 'To')?.value || '';
         const date = headers.find((h) => h.name === 'Date')?.value;
 
-        const body = this.extractBody(data.payload) || data.snippet;
+        let body = this.extractBody(data.payload) || data.snippet;
+        let attachments: {
+          filename: string | undefined;
+          contentType: string;
+          size: number;
+          contentDisposition: string | undefined;
+          cid: string | undefined;
+        }[] = [];
+
+        if (data.raw) {
+          let raw = data.raw.replace(/-/g, '+').replace(/_/g, '/');
+          while (raw.length % 4) {
+            raw += '=';
+          }
+          const decoded = Buffer.from(raw, 'base64').toString('utf-8');
+          const parsed = await this.parseMessageWithMailparser(decoded);
+
+          body = parsed.html || parsed.text || body;
+          attachments = parsed.attachments;
+        }
 
         if (data.labelIds.includes('UNREAD')) {
           await gmail.users.messages.modify({
@@ -328,6 +384,7 @@ export class EmailService {
           sentAt: date ? new Date(date) : new Date(),
           readAt: new Date(),
           folder: 'inbox',
+          attachments,
         };
       } catch (error) {
         this.logger.error(

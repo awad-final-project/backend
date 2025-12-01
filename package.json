@@ -36,6 +36,7 @@
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.5",
     "googleapis": "^166.0.0",
+    "mailparser": "^3.6.4",
     "mongoose": "^8.8.0",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
