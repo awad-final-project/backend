@@ -51,7 +51,7 @@ jobs:
       - name: Trigger DevOps Deployment
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.DEVOPS_REPO_TOKEN }}
+          github-token: ${{ secrets.DEVOPS_REPO_TOKEN || github.token }}
           script: |
             const backendBranch = '${{ github.ref_name }}';
             await github.rest.repos.createDispatchEvent({
