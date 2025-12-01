@@ -43,25 +43,3 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Trigger DevOps Deployment
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.DEVOPS_REPO_TOKEN || github.token }}
-          script: |
-            const backendBranch = '${{ github.ref_name }}';
-            await github.rest.repos.createDispatchEvent({
-              owner: 'awad-final-project',
-              repo: 'devops',
-              event_type: 'deploy-dev',
-              client_payload: {
-                app_name: 'dev',
-                branch_backend: backendBranch,
-                branch_frontend: 'dev',
-                domain_name: 'mail-dev.nguyenanhhao.site'
-              }
-            });
