@@ -384,53 +384,58 @@ export class EmailService {
         const to = data.to;
         const body = data.htmlBody || data.body;
         
-        this.logger.log(`Sending email via Gmail API: to=${to}, subject=${subject}, hasAttachments=${hasAttachments}`);
+        this.logger.log(`Sending email via Gmail API: to=${to}, subject=${subject}, bodyLength=${body?.length}, hasAttachments=${hasAttachments}`);
         
-        // Build MIME message with attachments
-        const boundary = `----=_Part_${Date.now()}`;
-        let message = '';
+        // Build MIME message
+        const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        let messageParts: string[] = [];
+
+        // Headers
+        messageParts.push(`From: ${userEmail}`);
+        messageParts.push(`To: ${to}`);
+        if (data.cc?.length) {
+          messageParts.push(`Cc: ${data.cc.join(', ')}`);
+        }
+        if (data.bcc?.length) {
+          messageParts.push(`Bcc: ${data.bcc.join(', ')}`);
+        }
+        messageParts.push(`Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`);
+        messageParts.push('MIME-Version: 1.0');
 
         if (hasAttachments && attachmentContents.length > 0) {
           this.logger.log(`Building MIME message with ${attachmentContents.length} attachments`);
-          message = [
-            `To: ${to}`,
-            data.cc?.length ? `Cc: ${data.cc.join(', ')}` : '',
-            data.bcc?.length ? `Bcc: ${data.bcc.join(', ')}` : '',
-            `Subject: ${subject}`,
-            'MIME-Version: 1.0',
-            `Content-Type: multipart/mixed; boundary="${boundary}"`,
-            '',
-            `--${boundary}`,
-            'Content-Type: text/html; charset=utf-8',
-            '',
-            body,
-          ].filter(Boolean).join('\r\n');
+          
+          messageParts.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+          messageParts.push('');
+          messageParts.push(`--${boundary}`);
+          messageParts.push('Content-Type: text/html; charset="UTF-8"');
+          messageParts.push('Content-Transfer-Encoding: base64');
+          messageParts.push('');
+          messageParts.push(Buffer.from(body).toString('base64'));
 
           // Add attachments
           for (const att of attachmentContents) {
             this.logger.log(`Adding attachment: ${att.filename}, type=${att.contentType}, size=${att.content.length}`);
-            message += `\r\n--${boundary}\r\n`;
-            message += `Content-Type: ${att.contentType}; name="${att.filename}"\r\n`;
-            message += `Content-Disposition: attachment; filename="${att.filename}"\r\n`;
-            message += 'Content-Transfer-Encoding: base64\r\n\r\n';
-            message += att.content.toString('base64');
+            messageParts.push(`--${boundary}`);
+            messageParts.push(`Content-Type: ${att.contentType}; name="${att.filename}"`);
+            messageParts.push(`Content-Disposition: attachment; filename="${att.filename}"`);
+            messageParts.push('Content-Transfer-Encoding: base64');
+            messageParts.push('');
+            messageParts.push(att.content.toString('base64'));
           }
-          message += `\r\n--${boundary}--`;
+          messageParts.push(`--${boundary}--`);
         } else {
-          message = [
-            `To: ${to}`,
-            data.cc?.length ? `Cc: ${data.cc.join(', ')}` : '',
-            data.bcc?.length ? `Bcc: ${data.bcc.join(', ')}` : '',
-            `Subject: ${subject}`,
-            'Content-Type: text/html; charset=utf-8',
-            '',
-            body
-          ].filter(Boolean).join('\r\n');
+          // Simple email without attachments
+          messageParts.push('Content-Type: text/html; charset="UTF-8"');
+          messageParts.push('Content-Transfer-Encoding: base64');
+          messageParts.push('');
+          messageParts.push(Buffer.from(body).toString('base64'));
         }
 
+        const message = messageParts.join('\r\n');
         const encodedMessage = Buffer.from(message).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
         
-        this.logger.log(`Sending message, encoded length: ${encodedMessage.length}`);
+        this.logger.log(`Sending message, raw length: ${message.length}, encoded length: ${encodedMessage.length}`);
 
         const result = await gmail.users.messages.send({
           userId: 'me',
