@@ -12,6 +12,9 @@ type IAttachment = {
   s3Bucket: string;
   emailId?: string;
   uploadedAt: Date;
+  // Store file content as base64 when S3 is not available
+  fileContent?: string;
+  storageType: 'S3' | 'DATABASE';
 };
 
 @Schema({
@@ -48,6 +51,14 @@ export class Attachment extends Document implements IAttachment {
 
   @Prop({ required: true, default: () => new Date() })
   uploadedAt: Date;
+
+  // Store file content as base64 when S3 is not available (max ~16MB due to MongoDB document size limit)
+  @Prop({ required: false })
+  fileContent?: string;
+
+  // Track where file is stored
+  @Prop({ required: true, default: 'S3', enum: ['S3', 'DATABASE'] })
+  storageType: 'S3' | 'DATABASE';
 }
 
 export const AttachmentSchema = SchemaFactory.createForClass(Attachment);

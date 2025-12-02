@@ -132,13 +132,21 @@ export class EmailController {
     @Param('attachmentId') attachmentId: string,
     @Res() res: Response,
   ) {
-    const { stream, filename, mimeType, size } = await this.attachmentService.downloadAttachment(attachmentId);
+    const result = await this.attachmentService.downloadAttachment(attachmentId);
 
-    res.setHeader('Content-Type', mimeType);
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-    res.setHeader('Content-Length', size);
+    res.setHeader('Content-Type', result.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(result.filename)}"`);
+    res.setHeader('Content-Length', result.size);
 
-    stream.pipe(res);
+    if (result.storageType === 'DATABASE' && result.buffer) {
+      // Send buffer directly for database-stored files
+      res.send(result.buffer);
+    } else if (result.stream) {
+      // Pipe stream for S3-stored files
+      result.stream.pipe(res);
+    } else {
+      res.status(404).send('File not found');
+    }
   }
 
   @Get('attachments/:attachmentId/url')

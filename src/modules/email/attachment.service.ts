@@ -50,24 +50,49 @@ export class AttachmentService {
       throw new BadRequestException('File must have a name');
     }
 
+    // Check file size limit for database storage (10MB max)
+    const MAX_DB_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    if (!this.s3Service.isAvailable() && file.size > MAX_DB_FILE_SIZE) {
+      throw new BadRequestException('File too large. Maximum size is 10MB when S3 is not configured.');
+    }
+
     this.logger.log(`Uploading attachment: ${file.originalname}, size: ${file.size}, type: ${file.mimetype}`);
 
     try {
-      // Upload to S3 (will handle gracefully if S3 is not configured)
-      const uploadResult = await this.s3Service.uploadFile(
-        file.buffer,
-        {
-          filename: file.originalname,
-          mimeType: file.mimetype || 'application/octet-stream',
-          size: file.size,
-        },
-        'attachments',
-      );
+      // Check if S3 is available
+      const s3Available = this.s3Service.isAvailable();
+      this.logger.log(`S3 available: ${s3Available}`);
 
-      this.logger.log(`S3 upload result: key=${uploadResult.key}, bucket=${uploadResult.bucket}`);
+      let uploadResult: { key: string; bucket: string; url: string };
+      let storageType: 'S3' | 'DATABASE' = 'S3';
+      let fileContentBase64: string | undefined;
+
+      if (s3Available) {
+        // Upload to S3
+        uploadResult = await this.s3Service.uploadFile(
+          file.buffer,
+          {
+            filename: file.originalname,
+            mimeType: file.mimetype || 'application/octet-stream',
+            size: file.size,
+          },
+          'attachments',
+        );
+        this.logger.log(`S3 upload result: key=${uploadResult.key}, bucket=${uploadResult.bucket}`);
+      } else {
+        // Store in database as base64
+        this.logger.log('S3 not available, storing file content in database');
+        storageType = 'DATABASE';
+        fileContentBase64 = file.buffer.toString('base64');
+        const fakeKey = `db-storage/${uuidv4()}-${file.originalname}`;
+        uploadResult = {
+          key: fakeKey,
+          bucket: 'database',
+          url: `db://${fakeKey}`,
+        };
+      }
 
       // Save metadata to database
-      // emailId is optional - will be linked later when email is sent
       const attachmentData: any = {
         filename: uuidv4() + '-' + file.originalname,
         originalName: file.originalname,
@@ -76,7 +101,13 @@ export class AttachmentService {
         s3Key: uploadResult.key,
         s3Bucket: uploadResult.bucket,
         uploadedAt: new Date(),
+        storageType,
       };
+
+      // Store file content in database if S3 is not available
+      if (storageType === 'DATABASE' && fileContentBase64) {
+        attachmentData.fileContent = fileContentBase64;
+      }
 
       // Only add emailId if it's a valid ObjectId
       if (emailId && emailId !== 'pending') {
@@ -85,7 +116,7 @@ export class AttachmentService {
 
       const attachment = await this.attachmentModel.save(attachmentData);
 
-      this.logger.log(`Attachment saved to DB: ${attachment._id}`);
+      this.logger.log(`Attachment saved to DB: ${attachment._id}, storageType: ${storageType}`);
 
       return {
         attachmentId: attachment._id.toString(),
@@ -172,14 +203,33 @@ export class AttachmentService {
    * Download attachment content
    */
   async downloadAttachment(attachmentId: string): Promise<{
-    stream: any;
+    stream?: any;
+    buffer?: Buffer;
     filename: string;
     mimeType: string;
     size: number;
+    storageType: 'S3' | 'DATABASE';
   }> {
     const attachment = await this.attachmentModel.findByIdString(attachmentId);
     if (!attachment) {
       throw new HttpException('Attachment not found', HttpStatus.NOT_FOUND);
+    }
+
+    const storageType = (attachment as any).storageType || 'S3';
+
+    if (storageType === 'DATABASE' && (attachment as any).fileContent) {
+      // Return buffer for database-stored files
+      return {
+        buffer: Buffer.from((attachment as any).fileContent, 'base64'),
+        filename: attachment.originalName,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        storageType: 'DATABASE',
+      };
+    }
+
+    if (!this.s3Service.isAvailable()) {
+      throw new HttpException('File not available. S3 is not configured.', HttpStatus.NOT_FOUND);
     }
 
     const { stream } = await this.s3Service.getFile(attachment.s3Key);
@@ -189,6 +239,7 @@ export class AttachmentService {
       filename: attachment.originalName,
       mimeType: attachment.mimeType,
       size: attachment.size,
+      storageType: 'S3',
     };
   }
 
@@ -199,6 +250,11 @@ export class AttachmentService {
     const attachment = await this.attachmentModel.findByIdString(attachmentId);
     if (!attachment) {
       throw new HttpException('Attachment not found', HttpStatus.NOT_FOUND);
+    }
+
+    // For database-stored files, return a special URL that will be handled by the controller
+    if ((attachment as any).storageType === 'DATABASE') {
+      return `/api/emails/attachments/${attachmentId}/download`;
     }
 
     return this.s3Service.getSignedDownloadUrl(attachment.s3Key, expiresIn);
@@ -266,14 +322,28 @@ export class AttachmentService {
       throw new HttpException('Attachment not found', HttpStatus.NOT_FOUND);
     }
 
-    const { stream } = await this.s3Service.getFile(attachment.s3Key);
+    this.logger.log(`Getting attachment content: ${attachmentId}, storageType: ${(attachment as any).storageType || 'S3'}`);
 
-    // Convert stream to buffer
-    const chunks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(chunk);
+    let content: Buffer;
+
+    // Check if file is stored in database
+    if ((attachment as any).storageType === 'DATABASE' && (attachment as any).fileContent) {
+      this.logger.log('Reading file content from database');
+      content = Buffer.from((attachment as any).fileContent, 'base64');
+    } else if (this.s3Service.isAvailable()) {
+      // Read from S3
+      this.logger.log('Reading file content from S3');
+      const { stream } = await this.s3Service.getFile(attachment.s3Key);
+
+      // Convert stream to buffer
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(chunk);
+      }
+      content = Buffer.concat(chunks);
+    } else {
+      throw new HttpException('File content not available. S3 is not configured and file is not stored in database.', HttpStatus.NOT_FOUND);
     }
-    const content = Buffer.concat(chunks);
 
     return {
       content,
