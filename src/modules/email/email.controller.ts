@@ -32,35 +32,12 @@ export class EmailController {
     private readonly attachmentService: AttachmentService,
   ) {}
 
+  // ==================== Static Routes First ====================
+
   @Get('mailboxes')
   @ApiOperation({ summary: 'Get all mailboxes with unread counts' })
   async getMailboxes(@CurrentUser() user: { userId: string }) {
     return this.emailService.getMailboxes(user.userId);
-  }
-
-  @Get('folder/:folder')
-  @ApiOperation({ summary: 'Get emails by folder' })
-  async getEmailsByFolder(
-    @CurrentUser() user: { userId: string },
-    @Param('folder') folder: string,
-    @Query('page') page: string = '1',
-    @Query('limit') limit: string = '50',
-  ) {
-    return this.emailService.getEmailsByFolder(
-      user.userId,
-      folder,
-      parseInt(page, 10),
-      parseInt(limit, 10),
-    );
-  }
-
-  @Get(':id')
-  @ApiOperation({ summary: 'Get email by ID with full details' })
-  async getEmailById(
-    @CurrentUser() user: { userId: string },
-    @Param('id') id: string,
-  ) {
-    return this.emailService.getEmailById(user.userId, id);
   }
 
   @Post('send')
@@ -72,41 +49,13 @@ export class EmailController {
     return this.emailService.sendEmail(user.userId, user.email, data);
   }
 
-  @Patch(':id/star')
-  @ApiOperation({ summary: 'Toggle star status of an email' })
-  async toggleStar(
-    @CurrentUser() user: { userId: string },
-    @Param('id') id: string,
-  ) {
-    return this.emailService.toggleStar(user.userId, id);
-  }
-
-  @Patch(':id/read')
-  @ApiOperation({ summary: 'Mark email as read/unread' })
-  async markAsRead(
-    @CurrentUser() user: { userId: string },
-    @Param('id') id: string,
-    @Body('isRead') isRead: boolean,
-  ) {
-    return this.emailService.markAsRead(user.userId, id, isRead);
-  }
-
-  @Delete(':id')
-  @ApiOperation({ summary: 'Delete an email' })
-  async deleteEmail(
-    @CurrentUser() user: { userId: string },
-    @Param('id') id: string,
-  ) {
-    return this.emailService.deleteEmail(user.userId, id);
-  }
-
   @Post('seed')
   @ApiOperation({ summary: 'Seed mock emails for testing' })
   async seedMockEmails(@CurrentUser() user: { userId: string; email: string }) {
     return this.emailService.seedMockEmails(user.userId, user.email);
   }
 
-  // ==================== Attachment Endpoints ====================
+  // ==================== Attachment Endpoints (before :id routes) ====================
 
   @Post('attachments/upload')
   @ApiOperation({ summary: 'Upload a single attachment' })
@@ -202,6 +151,63 @@ export class EmailController {
   ) {
     await this.attachmentService.deleteAttachment(attachmentId);
     return { message: 'Attachment deleted successfully' };
+  }
+
+  // ==================== Folder Routes ====================
+
+  @Get('folder/:folder')
+  @ApiOperation({ summary: 'Get emails by folder' })
+  async getEmailsByFolder(
+    @CurrentUser() user: { userId: string },
+    @Param('folder') folder: string,
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '50',
+  ) {
+    return this.emailService.getEmailsByFolder(
+      user.userId,
+      folder,
+      parseInt(page, 10),
+      parseInt(limit, 10),
+    );
+  }
+
+  // ==================== Dynamic :id Routes (MUST be last) ====================
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get email by ID with full details' })
+  async getEmailById(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+  ) {
+    return this.emailService.getEmailById(user.userId, id);
+  }
+
+  @Patch(':id/star')
+  @ApiOperation({ summary: 'Toggle star status of an email' })
+  async toggleStar(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+  ) {
+    return this.emailService.toggleStar(user.userId, id);
+  }
+
+  @Patch(':id/read')
+  @ApiOperation({ summary: 'Mark email as read/unread' })
+  async markAsRead(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+    @Body('isRead') isRead: boolean,
+  ) {
+    return this.emailService.markAsRead(user.userId, id, isRead);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete an email' })
+  async deleteEmail(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+  ) {
+    return this.emailService.deleteEmail(user.userId, id);
   }
 
   @Get(':emailId/attachments')
