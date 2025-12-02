@@ -10,7 +10,7 @@ type IAttachment = {
   size: number;
   s3Key: string;
   s3Bucket: string;
-  emailId: string;
+  emailId?: string;
   uploadedAt: Date;
 };
 
@@ -41,8 +41,10 @@ export class Attachment extends Document implements IAttachment {
   @Prop({ required: true })
   s3Bucket: string;
 
-  @Prop({ required: true, type: MongooseSchema.Types.ObjectId, ref: 'Email' })
-  emailId: string;
+  // emailId is optional - can be null/undefined when attachment is first uploaded
+  // Will be linked to email after email is sent
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Email', required: false })
+  emailId?: string;
 
   @Prop({ required: true, default: () => new Date() })
   uploadedAt: Date;

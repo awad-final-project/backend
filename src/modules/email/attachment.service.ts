@@ -67,16 +67,23 @@ export class AttachmentService {
       this.logger.log(`S3 upload result: key=${uploadResult.key}, bucket=${uploadResult.bucket}`);
 
       // Save metadata to database
-      const attachment = await this.attachmentModel.save({
+      // emailId is optional - will be linked later when email is sent
+      const attachmentData: any = {
         filename: uuidv4() + '-' + file.originalname,
         originalName: file.originalname,
         mimeType: file.mimetype || 'application/octet-stream',
         size: file.size,
         s3Key: uploadResult.key,
         s3Bucket: uploadResult.bucket,
-        emailId: emailId || 'pending',
         uploadedAt: new Date(),
-      });
+      };
+
+      // Only add emailId if it's a valid ObjectId
+      if (emailId && emailId !== 'pending') {
+        attachmentData.emailId = emailId;
+      }
+
+      const attachment = await this.attachmentModel.save(attachmentData);
 
       this.logger.log(`Attachment saved to DB: ${attachment._id}`);
 
