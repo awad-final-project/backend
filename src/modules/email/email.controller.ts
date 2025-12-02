@@ -12,15 +12,25 @@ import {
   UploadedFiles,
   UseGuards,
   UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
+import { memoryStorage } from 'multer';
 import { EmailService } from './email.service';
 import { AttachmentService } from './attachment.service';
 import { JwtAuthGuard } from '../../libs/guards/jwt-auth.guard';
 import { CurrentUser } from '../../libs/decorators';
 import { SendEmailDto } from '../../libs/dtos';
+
+// Multer config for serverless environment
+const multerOptions = {
+  storage: memoryStorage(),
+  limits: {
+    fileSize: 25 * 1024 * 1024, // 25MB max file size
+  },
+};
 
 @ApiTags('Emails')
 @Controller('emails')
@@ -71,14 +81,13 @@ export class EmailController {
       },
     },
   })
-  @UseInterceptors(FileInterceptor('file', {
-    limits: {
-      fileSize: 25 * 1024 * 1024, // 25MB max file size
-    },
-  }))
+  @UseInterceptors(FileInterceptor('file', multerOptions))
   async uploadAttachment(
     @UploadedFile() file: Express.Multer.File,
   ) {
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
     return this.attachmentService.uploadAttachment(file);
   }
 
@@ -99,14 +108,13 @@ export class EmailController {
       },
     },
   })
-  @UseInterceptors(FilesInterceptor('files', 10, {
-    limits: {
-      fileSize: 25 * 1024 * 1024, // 25MB max per file
-    },
-  }))
+  @UseInterceptors(FilesInterceptor('files', 10, multerOptions))
   async uploadMultipleAttachments(
     @UploadedFiles() files: Express.Multer.File[],
   ) {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('No files provided');
+    }
     return this.attachmentService.uploadMultipleAttachments(files);
   }
 

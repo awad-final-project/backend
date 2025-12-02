@@ -30,16 +30,23 @@ export class AttachmentService {
     file: Express.Multer.File,
     emailId?: string,
   ): Promise<UploadedAttachment> {
+    this.logger.log(`uploadAttachment called, file: ${file ? 'exists' : 'null'}`);
+    
     // Validate file
     if (!file) {
+      this.logger.error('No file provided in uploadAttachment');
       throw new BadRequestException('No file provided');
     }
 
+    this.logger.log(`File details: originalname=${file.originalname}, size=${file.size}, mimetype=${file.mimetype}, buffer=${file.buffer ? 'exists' : 'null'}`);
+
     if (!file.buffer || file.buffer.length === 0) {
+      this.logger.error('Empty file buffer');
       throw new BadRequestException('Empty file provided');
     }
 
     if (!file.originalname) {
+      this.logger.error('File has no name');
       throw new BadRequestException('File must have a name');
     }
 
@@ -57,6 +64,8 @@ export class AttachmentService {
         'attachments',
       );
 
+      this.logger.log(`S3 upload result: key=${uploadResult.key}, bucket=${uploadResult.bucket}`);
+
       // Save metadata to database
       const attachment = await this.attachmentModel.save({
         filename: uuidv4() + '-' + file.originalname,
@@ -69,7 +78,7 @@ export class AttachmentService {
         uploadedAt: new Date(),
       });
 
-      this.logger.log(`Attachment uploaded: ${attachment._id}`);
+      this.logger.log(`Attachment saved to DB: ${attachment._id}`);
 
       return {
         attachmentId: attachment._id.toString(),
