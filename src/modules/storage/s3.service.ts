@@ -26,13 +26,25 @@ export interface FileMetadata {
 @Injectable()
 export class S3Service {
   private readonly logger = new Logger(S3Service.name);
-  private readonly s3Client: S3Client;
+  private readonly s3Client: S3Client | null = null;
   private readonly bucket: string;
   private readonly region: string;
+  private readonly isConfigured: boolean;
 
   constructor(private readonly configService: ConfigService) {
     this.region = this.configService.get<string>('AWS_REGION') || 'us-east-1';
     this.bucket = this.configService.get<string>('AWS_S3_BUCKET') || 'email-attachments';
+
+    const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
+    const secretAccessKey = this.configService.get<string>('AWS_SECRET_ACCESS_KEY');
+
+    // Check if S3 is properly configured
+    this.isConfigured = !!(accessKeyId && secretAccessKey);
+
+    if (!this.isConfigured) {
+      this.logger.warn('S3 is not configured. File uploads will be stored locally in database only.');
+      return;
+    }
 
     // Support both AWS S3 and MinIO
     const endpoint = this.configService.get<string>('S3_ENDPOINT');
@@ -42,10 +54,17 @@ export class S3Service {
       endpoint: endpoint || undefined,
       forcePathStyle: !!endpoint, // Required for MinIO
       credentials: {
-        accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY_ID') || '',
-        secretAccessKey: this.configService.get<string>('AWS_SECRET_ACCESS_KEY') || '',
+        accessKeyId: accessKeyId || '',
+        secretAccessKey: secretAccessKey || '',
       },
     });
+  }
+
+  /**
+   * Check if S3 is configured and available
+   */
+  isAvailable(): boolean {
+    return this.isConfigured && this.s3Client !== null;
   }
 
   /**
@@ -58,8 +77,18 @@ export class S3Service {
   ): Promise<UploadResult> {
     const key = `${folder}/${uuidv4()}-${metadata.filename}`;
 
+    // If S3 is not configured, return a mock result
+    if (!this.isAvailable()) {
+      this.logger.warn('S3 not configured, returning mock upload result');
+      return {
+        key,
+        bucket: this.bucket,
+        url: `local://${key}`,
+      };
+    }
+
     try {
-      await this.s3Client.send(
+      await this.s3Client!.send(
         new PutObjectCommand({
           Bucket: this.bucket,
           Key: key,
@@ -90,8 +119,12 @@ export class S3Service {
    * Get a file from S3
    */
   async getFile(key: string): Promise<{ stream: Readable; metadata: any }> {
+    if (!this.isAvailable()) {
+      throw new Error('S3 is not configured. Cannot retrieve files.');
+    }
+
     try {
-      const response = await this.s3Client.send(
+      const response = await this.s3Client!.send(
         new GetObjectCommand({
           Bucket: this.bucket,
           Key: key,
@@ -117,8 +150,13 @@ export class S3Service {
    * Delete a file from S3
    */
   async deleteFile(key: string): Promise<void> {
+    if (!this.isAvailable()) {
+      this.logger.warn('S3 not configured, skipping file deletion');
+      return;
+    }
+
     try {
-      await this.s3Client.send(
+      await this.s3Client!.send(
         new DeleteObjectCommand({
           Bucket: this.bucket,
           Key: key,
@@ -135,8 +173,12 @@ export class S3Service {
    * Check if a file exists in S3
    */
   async fileExists(key: string): Promise<boolean> {
+    if (!this.isAvailable()) {
+      return false;
+    }
+
     try {
-      await this.s3Client.send(
+      await this.s3Client!.send(
         new HeadObjectCommand({
           Bucket: this.bucket,
           Key: key,
@@ -155,13 +197,17 @@ export class S3Service {
    * Get a signed URL for downloading a file (valid for 1 hour by default)
    */
   async getSignedDownloadUrl(key: string, expiresIn: number = 3600): Promise<string> {
+    if (!this.isAvailable()) {
+      return `local://${key}`;
+    }
+
     try {
       const command = new GetObjectCommand({
         Bucket: this.bucket,
         Key: key,
       });
 
-      return await getSignedUrl(this.s3Client, command, { expiresIn });
+      return await getSignedUrl(this.s3Client!, command, { expiresIn });
     } catch (error) {
       this.logger.error(`Failed to generate signed URL: ${error.message}`, error.stack);
       throw error;
@@ -176,6 +222,10 @@ export class S3Service {
     mimeType: string,
     expiresIn: number = 3600,
   ): Promise<string> {
+    if (!this.isAvailable()) {
+      return `local://${key}`;
+    }
+
     try {
       const command = new PutObjectCommand({
         Bucket: this.bucket,
@@ -183,7 +233,7 @@ export class S3Service {
         ContentType: mimeType,
       });
 
-      return await getSignedUrl(this.s3Client, command, { expiresIn });
+      return await getSignedUrl(this.s3Client!, command, { expiresIn });
     } catch (error) {
       this.logger.error(`Failed to generate upload URL: ${error.message}`, error.stack);
       throw error;

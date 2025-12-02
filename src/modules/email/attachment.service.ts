@@ -1,4 +1,4 @@
-import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, Logger, HttpException, HttpStatus, BadRequestException } from '@nestjs/common';
 import { AttachmentModel } from '../../libs/database/src/models';
 import { S3Service } from '../storage/s3.service';
 import { v4 as uuidv4 } from 'uuid';
@@ -30,13 +30,28 @@ export class AttachmentService {
     file: Express.Multer.File,
     emailId?: string,
   ): Promise<UploadedAttachment> {
+    // Validate file
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+
+    if (!file.buffer || file.buffer.length === 0) {
+      throw new BadRequestException('Empty file provided');
+    }
+
+    if (!file.originalname) {
+      throw new BadRequestException('File must have a name');
+    }
+
+    this.logger.log(`Uploading attachment: ${file.originalname}, size: ${file.size}, type: ${file.mimetype}`);
+
     try {
-      // Upload to S3
+      // Upload to S3 (will handle gracefully if S3 is not configured)
       const uploadResult = await this.s3Service.uploadFile(
         file.buffer,
         {
           filename: file.originalname,
-          mimeType: file.mimetype,
+          mimeType: file.mimetype || 'application/octet-stream',
           size: file.size,
         },
         'attachments',
@@ -46,7 +61,7 @@ export class AttachmentService {
       const attachment = await this.attachmentModel.save({
         filename: uuidv4() + '-' + file.originalname,
         originalName: file.originalname,
-        mimeType: file.mimetype,
+        mimeType: file.mimetype || 'application/octet-stream',
         size: file.size,
         s3Key: uploadResult.key,
         s3Bucket: uploadResult.bucket,
@@ -68,8 +83,11 @@ export class AttachmentService {
       };
     } catch (error) {
       this.logger.error(`Failed to upload attachment: ${error.message}`, error.stack);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
       throw new HttpException(
-        'Failed to upload attachment',
+        `Failed to upload attachment: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -82,6 +100,9 @@ export class AttachmentService {
     files: Express.Multer.File[],
     emailId?: string,
   ): Promise<UploadedAttachment[]> {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('No files provided');
+    }
     return Promise.all(files.map((file) => this.uploadAttachment(file, emailId)));
   }
 
