@@ -384,11 +384,14 @@ export class EmailService {
         const to = data.to;
         const body = data.htmlBody || data.body;
         
+        this.logger.log(`Sending email via Gmail API: to=${to}, subject=${subject}, hasAttachments=${hasAttachments}`);
+        
         // Build MIME message with attachments
         const boundary = `----=_Part_${Date.now()}`;
         let message = '';
 
         if (hasAttachments && attachmentContents.length > 0) {
+          this.logger.log(`Building MIME message with ${attachmentContents.length} attachments`);
           message = [
             `To: ${to}`,
             data.cc?.length ? `Cc: ${data.cc.join(', ')}` : '',
@@ -405,6 +408,7 @@ export class EmailService {
 
           // Add attachments
           for (const att of attachmentContents) {
+            this.logger.log(`Adding attachment: ${att.filename}, type=${att.contentType}, size=${att.content.length}`);
             message += `\r\n--${boundary}\r\n`;
             message += `Content-Type: ${att.contentType}; name="${att.filename}"\r\n`;
             message += `Content-Disposition: attachment; filename="${att.filename}"\r\n`;
@@ -425,17 +429,21 @@ export class EmailService {
         }
 
         const encodedMessage = Buffer.from(message).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        
+        this.logger.log(`Sending message, encoded length: ${encodedMessage.length}`);
 
-        await gmail.users.messages.send({
+        const result = await gmail.users.messages.send({
           userId: 'me',
           requestBody: {
             raw: encodedMessage,
           },
         });
+        
+        this.logger.log(`Gmail API response: messageId=${result.data.id}, threadId=${result.data.threadId}`);
 
-        return { message: 'Email sent successfully via Gmail' };
+        return { message: 'Email sent successfully via Gmail', messageId: result.data.id };
       } catch (error) {
-        this.logger.warn(`Failed to send Gmail: ${error.message}`);
+        this.logger.error(`Failed to send Gmail: ${error.message}`, error.stack);
       }
     }
 
