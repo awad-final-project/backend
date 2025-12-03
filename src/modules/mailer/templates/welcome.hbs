@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome!</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      text-align: center;
+      border-radius: 10px 10px 0 0;
+    }
+    .content {
+      background: #f9f9f9;
+      padding: 30px;
+      border-radius: 0 0 10px 10px;
+    }
+    .button {
+      display: inline-block;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 12px 30px;
+      text-decoration: none;
+      border-radius: 5px;
+      margin: 20px 0;
+    }
+    .footer {
+      text-align: center;
+      color: #888;
+      font-size: 12px;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Welcome, {{username}}! 🎉</h1>
+  </div>
+  <div class="content">
+    <p>Thank you for joining our email application!</p>
+    <p>We're excited to have you on board. Here are some things you can do:</p>
+    <ul>
+      <li>Send and receive emails</li>
+      <li>Attach files to your emails</li>
+      <li>Organize your inbox with folders</li>
+      <li>Star important emails</li>
+    </ul>
+    <p>If you have any questions, feel free to reach out to our support team.</p>
+    <p>Best regards,<br>The Email App Team</p>
+  </div>
+  <div class="footer">
+    <p>&copy; {{year}} Email App. All rights reserved.</p>
+  </div>
+</body>
+</html>
