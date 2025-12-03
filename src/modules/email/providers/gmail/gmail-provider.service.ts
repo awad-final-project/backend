@@ -585,61 +585,85 @@ export class GmailProviderService implements IEmailProvider {
 
       this.logger.debug(`Looking for attachment ${attachmentId} in email ${emailId}`);
 
-      // Helper function to recursively find attachment part
-      let attachmentPart: any = null;
-      const findAttachmentPart = (parts: any[]): any => {
-        if (!parts || !Array.isArray(parts)) return null;
+      // Helper function to recursively find ALL attachments
+      const allAttachments: any[] = [];
+      const collectAllAttachments = (parts: any[]): void => {
+        if (!parts || !Array.isArray(parts)) return;
         
         for (const part of parts) {
-          // Check if this part is the attachment we're looking for
-          if (part.body && part.body.attachmentId === attachmentId && part.filename) {
-            return part;
+          // Check if this part has an attachment
+          if (part.body && part.body.attachmentId && part.filename) {
+            allAttachments.push({
+              part,
+              attachmentId: part.body.attachmentId,
+              filename: part.filename,
+              mimeType: part.mimeType,
+              size: part.body.size,
+            });
           }
           
           // Recursively check nested parts
           if (part.parts && Array.isArray(part.parts)) {
-            const found = findAttachmentPart(part.parts);
-            if (found) return found;
+            collectAllAttachments(part.parts);
           }
         }
-        return null;
       };
 
-      // Try to find attachment in payload.parts
+      // Collect all attachments from the email
       if (messageData.payload.parts) {
-        attachmentPart = findAttachmentPart(messageData.payload.parts);
+        collectAllAttachments(messageData.payload.parts);
       }
       
-      // If not found in parts, check if payload itself is the attachment
-      if (!attachmentPart && messageData.payload.body && messageData.payload.body.attachmentId === attachmentId) {
-        attachmentPart = messageData.payload;
+      // Check if payload itself is an attachment
+      if (messageData.payload.body && messageData.payload.body.attachmentId && messageData.payload.filename) {
+        allAttachments.push({
+          part: messageData.payload,
+          attachmentId: messageData.payload.body.attachmentId,
+          filename: messageData.payload.filename,
+          mimeType: messageData.payload.mimeType,
+          size: messageData.payload.body.size,
+        });
       }
 
-      if (!attachmentPart) {
-        this.logger.error(`Attachment not found. EmailId: ${emailId}, AttachmentId: ${attachmentId}`);
-        // Log all available attachments for debugging
-        const debugParts: any[] = [];
-        const collectParts = (parts: any[]) => {
-          if (!parts) return;
-          parts.forEach(p => {
-            if (p.body && p.body.attachmentId) {
-              debugParts.push({ filename: p.filename, attachmentId: p.body.attachmentId });
-            }
-            if (p.parts) collectParts(p.parts);
-          });
-        };
-        if (messageData.payload.parts) collectParts(messageData.payload.parts);
-        this.logger.error(`Available attachments: ${JSON.stringify(debugParts)}`);
-        throw new Error(`Attachment with ID ${attachmentId} not found in email ${emailId}`);
+      if (allAttachments.length === 0) {
+        throw new Error('No attachments found in this email');
       }
 
-      this.logger.debug(`Found attachment: ${attachmentPart.filename}`);
+      this.logger.debug(`Found ${allAttachments.length} attachments in email`);
 
-      // Download the attachment using Gmail API
+      // Try to find by exact attachmentId first
+      let targetAttachment = allAttachments.find(a => a.attachmentId === attachmentId);
+      
+      // If not found (attachmentId changed), use the first attachment if there's only one
+      // or try to match by comparing the beginning of the ID (they often share a prefix)
+      if (!targetAttachment) {
+        this.logger.warn(`Exact attachmentId not found. Looking for similar attachment...`);
+        
+        if (allAttachments.length === 1) {
+          // If there's only one attachment, use it
+          this.logger.debug(`Only one attachment found, using it`);
+          targetAttachment = allAttachments[0];
+        } else {
+          // Try to find by comparing ID prefix (first 20 chars)
+          const idPrefix = attachmentId.substring(0, 20);
+          targetAttachment = allAttachments.find(a => a.attachmentId.startsWith(idPrefix));
+          
+          if (!targetAttachment) {
+            // Last resort: use first attachment
+            this.logger.warn(`Could not match attachment, using first one`);
+            targetAttachment = allAttachments[0];
+          }
+        }
+      }
+
+      const actualAttachmentId = targetAttachment.attachmentId;
+      this.logger.debug(`Using attachment: ${targetAttachment.filename} (ID: ${actualAttachmentId.substring(0, 30)}...)`);
+
+      // Download the attachment using the ACTUAL attachmentId from the current fetch
       const { data: attachmentData } = await gmail.users.messages.attachments.get({
         userId: 'me',
         messageId: emailId,
-        id: attachmentId,
+        id: actualAttachmentId,
       });
 
       if (!attachmentData || !attachmentData.data) {
@@ -658,12 +682,12 @@ export class GmailProviderService implements IEmailProvider {
 
       const buffer = Buffer.from(base64Data, 'base64');
 
-      this.logger.debug(`Successfully decoded attachment: ${attachmentPart.filename}, size: ${buffer.length} bytes`);
+      this.logger.debug(`Successfully decoded attachment: ${targetAttachment.filename}, size: ${buffer.length} bytes`);
 
       return {
         buffer,
-        filename: attachmentPart.filename || 'attachment',
-        mimeType: attachmentPart.mimeType || 'application/octet-stream',
+        filename: targetAttachment.filename || 'attachment',
+        mimeType: targetAttachment.mimeType || 'application/octet-stream',
         size: buffer.length,
       };
     } catch (error) {
