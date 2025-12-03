@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
-import { EmailModelModule, AccountModelModule } from '@database/models';
+import { EmailModelModule, AccountModelModule, AccessTokenModelModule } from '@database/models';
 import { StorageModule } from '@app/modules/storage';
 import { MailModule } from '@app/modules/mailer';
 import { ImapModule } from '@app/modules/imap';
@@ -13,7 +13,7 @@ import { EmailProviderFactory } from './email-provider.factory';
 
 /**
  * Email Providers Module
- * Shared module that provides email provider services to all feature modules
+ * Shared module that provides email provider services and auth dependencies to all feature modules
  */
 @Module({
   imports: [
@@ -27,6 +27,7 @@ import { EmailProviderFactory } from './email-provider.factory';
     }),
     EmailModelModule,
     AccountModelModule,
+    AccessTokenModelModule,
     StorageModule,
     MailModule,
     ImapModule,
@@ -37,6 +38,13 @@ import { EmailProviderFactory } from './email-provider.factory';
     EmailProviderFactory,
   ],
   exports: [
+    // Export modules so feature modules can use them
+    PassportModule,
+    JwtModule,
+    EmailModelModule,
+    AccountModelModule,
+    AccessTokenModelModule,
+    // Export providers
     GmailProviderService,
     DatabaseProviderService,
     EmailProviderFactory,
