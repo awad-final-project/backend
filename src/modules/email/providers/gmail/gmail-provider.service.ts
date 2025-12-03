@@ -553,6 +553,28 @@ export class GmailProviderService implements IEmailProvider {
         id: emailId,
       });
 
+      this.logger.debug(`Looking for attachment ${attachmentId} in email ${emailId}`);
+
+      // Collect all attachments for debugging
+      const allAttachments: any[] = [];
+      function collectAttachments(part: any, depth = 0) {
+        if (part.body && part.body.attachmentId) {
+          allAttachments.push({
+            filename: part.filename,
+            attachmentId: part.body.attachmentId,
+            size: part.body.size,
+            mimeType: part.mimeType,
+            depth
+          });
+        }
+        if (part.parts && Array.isArray(part.parts)) {
+          part.parts.forEach((p: any) => collectAttachments(p, depth + 1));
+        }
+      }
+      collectAttachments(messageData.payload);
+      
+      this.logger.debug(`Found ${allAttachments.length} attachments: ${JSON.stringify(allAttachments.map(a => ({ filename: a.filename, id: a.attachmentId })))}`);
+
       // Find the attachment part
       let attachmentPart: any = null;
       function findAttachment(part: any) {
@@ -572,7 +594,8 @@ export class GmailProviderService implements IEmailProvider {
       findAttachment(messageData.payload);
 
       if (!attachmentPart) {
-        this.logger.error(`Attachment not found. EmailId: ${emailId}, AttachmentId: ${attachmentId}`);
+        this.logger.error(`Attachment not found. EmailId: ${emailId}, Looking for AttachmentId: ${attachmentId}`);
+        this.logger.error(`Available attachments: ${JSON.stringify(allAttachments)}`);
         throw new Error(`Attachment with ID ${attachmentId} not found in email ${emailId}`);
       }
 
