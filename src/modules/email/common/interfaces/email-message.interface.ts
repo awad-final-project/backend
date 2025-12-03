@@ -54,6 +54,8 @@ export interface IEmailListResponse {
   page: number;
   limit: number;
   totalPages: number;
+  nextPageToken?: string; // Gmail API pageToken for next page
+  hasMore: boolean; // Whether there are more pages available
 }
 
 /**

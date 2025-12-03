@@ -122,13 +122,14 @@ export class GmailProviderService implements IEmailProvider {
     try {
       const labelId = mapFolderToGmailLabel(folder);
 
-      // Gmail API doesn't support offset, so we need to fetch pages sequentially
-      // For page > 1, we need to iterate through pageTokens
+      // Gmail API uses pageToken for pagination, not offset
+      // We'll cache tokens in memory (in production, use Redis/DB)
+      // For now, iterate through pages to reach requested page
       let currentPage = 1;
       let pageToken: string | undefined = undefined;
       let res: any;
 
-      // Fetch all pages up to the requested page
+      // Fetch pages sequentially until we reach the requested page
       while (currentPage <= page) {
         res = await gmail.users.messages.list({
           userId: 'me',
@@ -149,7 +150,8 @@ export class GmailProviderService implements IEmailProvider {
             total: res.data.resultSizeEstimate || 0,
             page,
             limit,
-            totalPages: Math.ceil((res.data.resultSizeEstimate || 0) / limit),
+            totalPages: page, // Current page is the last page
+            hasMore: false,
           };
         }
         
@@ -189,12 +191,16 @@ export class GmailProviderService implements IEmailProvider {
       );
 
       const total = res.data.resultSizeEstimate || 0;
+      const hasMore = !!res.data.nextPageToken;
+      
       return {
         emails,
         total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit),
+        totalPages: hasMore ? page + 1 : page, // If hasMore, at least one more page exists
+        nextPageToken: res.data.nextPageToken,
+        hasMore,
       };
     } catch (error) {
       this.logger.error(`Failed to fetch Gmail emails: ${error.message}`);

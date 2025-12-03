@@ -125,6 +125,7 @@ export class DatabaseProviderService implements IEmailProvider {
         page,
         limit,
         totalPages: Math.ceil(total / limit),
+        hasMore: page < Math.ceil(total / limit),
       };
     } catch (error) {
       this.logger.error(`Failed to get emails: ${error.message}`);
