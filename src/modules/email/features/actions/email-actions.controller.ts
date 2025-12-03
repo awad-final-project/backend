@@ -57,4 +57,33 @@ export class EmailActionsController {
   ) {
     return this.emailActionsService.modifyEmail(user.userId, id, data);
   }
+
+  @Post('bulk/delete')
+  @ApiOperation({ summary: 'Bulk delete multiple emails' })
+  async bulkDelete(
+    @CurrentUser() user: { userId: string },
+    @Body('emailIds') emailIds: string[],
+  ) {
+    return this.emailActionsService.bulkDelete(user.userId, emailIds);
+  }
+
+  @Post('bulk/star')
+  @ApiOperation({ summary: 'Bulk star/unstar emails' })
+  async bulkToggleStar(
+    @CurrentUser() user: { userId: string },
+    @Body('emailIds') emailIds: string[],
+    @Body('star') star: boolean,
+  ) {
+    return this.emailActionsService.bulkToggleStar(user.userId, emailIds, star);
+  }
+
+  @Post('bulk/read')
+  @ApiOperation({ summary: 'Bulk mark emails as read/unread' })
+  async bulkMarkAsRead(
+    @CurrentUser() user: { userId: string },
+    @Body('emailIds') emailIds: string[],
+    @Body('isRead') isRead: boolean,
+  ) {
+    return this.emailActionsService.bulkMarkAsRead(user.userId, emailIds, isRead);
+  }
 }

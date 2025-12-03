@@ -50,6 +50,12 @@ export class Account extends Document implements IAccount {
 
   @Prop({ default: 'user' })
   role: string;
+
+  @Prop({ type: Object })
+  gmailWatch?: {
+    historyId: string;
+    expiration: string;
+  };
 }
 
 export const AccountSchema = SchemaFactory.createForClass(Account);

@@ -193,6 +193,14 @@ export class AuthService {
 
   async logout(userId: string) {
     try {
+      // Get user to check if they have Google refresh token
+      const user = await this.accountModel.findOne({ _id: userId });
+      
+      // Revoke Google refresh token if exists
+      if (user?.googleRefreshToken) {
+        await this.revokeGoogleToken(user.googleRefreshToken);
+      }
+      
       await this.refreshTokenModel.deleteMany({ accountId: userId });
       await this.accessTokenModel.deleteMany({ accountId: userId });
       return { message: 'Logged out successfully' };
@@ -202,6 +210,31 @@ export class AuthService {
         'Error logging out',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
+    }
+  }
+
+  /**
+   * Revoke Google OAuth refresh token
+   * @param refreshToken - Google refresh token to revoke
+   */
+  private async revokeGoogleToken(refreshToken: string): Promise<void> {
+    try {
+      const revokeUrl = `https://oauth2.googleapis.com/revoke?token=${refreshToken}`;
+      const response = await fetch(revokeUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      });
+
+      if (response.ok) {
+        this.logger.log('Google refresh token revoked successfully');
+      } else {
+        this.logger.warn(`Failed to revoke Google token: ${response.status} ${response.statusText}`);
+      }
+    } catch (error) {
+      // Don't throw error, just log it - logout should still succeed
+      this.logger.error(`Error revoking Google token: ${error.message}`);
     }
   }
 

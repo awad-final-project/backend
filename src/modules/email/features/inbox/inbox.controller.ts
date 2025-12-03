@@ -12,18 +12,32 @@ export class InboxController {
   constructor(private readonly inboxService: InboxService) {}
 
   @Get('folder/:folder')
-  @ApiOperation({ summary: 'Get emails by folder' })
+  @ApiOperation({ summary: 'Get emails by folder with optional search and filters' })
   async getEmailsByFolder(
     @CurrentUser() user: { userId: string },
     @Param('folder') folder: string,
     @Query('page') page: string = '1',
     @Query('limit') limit: string = '50',
+    @Query('search') search?: string,
+    @Query('from') from?: string,
+    @Query('unread') unread?: string,
+    @Query('starred') starred?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
     return this.inboxService.getEmailsByFolder(
       user.userId,
       folder,
       parseInt(page, 10),
       parseInt(limit, 10),
+      {
+        search,
+        from,
+        unread: unread === 'true',
+        starred: starred === 'true',
+        startDate: startDate ? new Date(startDate) : undefined,
+        endDate: endDate ? new Date(endDate) : undefined,
+      },
     );
   }
 

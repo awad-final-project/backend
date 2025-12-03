@@ -10,6 +10,8 @@ import { InboxModule } from '@email/features/inbox/inbox.module';
 import { ComposeModule } from '@email/features/compose/compose.module';
 import { EmailActionsModule } from '@email/features/actions/email-actions.module';
 import { EmailUtilsModule } from '@email/features/utils/email-utils.module';
+import { DraftsModule } from '@email/features/drafts/drafts.module';
+import { NotificationsModule } from '@email/features/notifications/notifications.module';
 
 /**
  * Email Module
@@ -27,6 +29,8 @@ import { EmailUtilsModule } from '@email/features/utils/email-utils.module';
     ComposeModule,
     EmailActionsModule,
     EmailUtilsModule,
+    DraftsModule,
+    NotificationsModule,
   ],
   exports: [
     EmailProvidersModule,
@@ -36,6 +40,8 @@ import { EmailUtilsModule } from '@email/features/utils/email-utils.module';
     ComposeModule,
     EmailActionsModule,
     EmailUtilsModule,
+    DraftsModule,
+    NotificationsModule,
   ],
 })
 export class EmailModule {}

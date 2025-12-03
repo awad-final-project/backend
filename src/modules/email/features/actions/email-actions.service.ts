@@ -79,4 +79,78 @@ export class EmailActionsService {
     
     return { message: 'Email modified successfully' };
   }
+
+  async bulkDelete(
+    userId: string,
+    emailIds: string[],
+  ): Promise<{ message: string; deleted: number }> {
+    const provider = await this.providerFactory.getProvider(userId);
+    let deletedCount = 0;
+
+    for (const emailId of emailIds) {
+      try {
+        const success = await provider.deleteEmail(userId, emailId);
+        if (success) deletedCount++;
+      } catch (error) {
+        this.logger.warn(`Failed to delete email ${emailId}:`, error);
+      }
+    }
+
+    return {
+      message: `Deleted ${deletedCount} of ${emailIds.length} emails`,
+      deleted: deletedCount,
+    };
+  }
+
+  async bulkToggleStar(
+    userId: string,
+    emailIds: string[],
+    star: boolean,
+  ): Promise<{ message: string; modified: number }> {
+    const provider = await this.providerFactory.getProvider(userId);
+    let modifiedCount = 0;
+
+    for (const emailId of emailIds) {
+      try {
+        const current = await provider.getEmailById(userId, emailId);
+        if (current && current.isStarred !== star) {
+          await provider.toggleStar(userId, emailId);
+          modifiedCount++;
+        } else if (current && current.isStarred === star) {
+          // Already in desired state
+          modifiedCount++;
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to toggle star for email ${emailId}:`, error);
+      }
+    }
+
+    return {
+      message: `Modified ${modifiedCount} of ${emailIds.length} emails`,
+      modified: modifiedCount,
+    };
+  }
+
+  async bulkMarkAsRead(
+    userId: string,
+    emailIds: string[],
+    isRead: boolean,
+  ): Promise<{ message: string; modified: number }> {
+    const provider = await this.providerFactory.getProvider(userId);
+    let modifiedCount = 0;
+
+    for (const emailId of emailIds) {
+      try {
+        await provider.markAsRead(userId, emailId, isRead);
+        modifiedCount++;
+      } catch (error) {
+        this.logger.warn(`Failed to mark email ${emailId} as ${isRead ? 'read' : 'unread'}:`, error);
+      }
+    }
+
+    return {
+      message: `Marked ${modifiedCount} of ${emailIds.length} emails as ${isRead ? 'read' : 'unread'}`,
+      modified: modifiedCount,
+    };
+  }
 }
