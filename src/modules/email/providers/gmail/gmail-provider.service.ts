@@ -199,16 +199,16 @@ export class GmailProviderService implements IEmailProvider {
       const total = res.data.resultSizeEstimate || 0;
       const hasMore = !!res.data.nextPageToken;
       
-      // Calculate estimated total pages
-      const estimatedTotalPages = Math.ceil(total / limit);
+      // Calculate estimated total pages based on total count
+      const estimatedTotalPages = total > 0 ? Math.ceil(total / limit) : 1;
       
       return {
         emails,
         total,
         page,
         limit,
-        // Use estimated total pages, but ensure at least page + 1 if hasMore
-        totalPages: hasMore ? Math.max(estimatedTotalPages, page + 1) : page,
+        // Use estimated total pages from count, not hasMore flag
+        totalPages: estimatedTotalPages,
         nextPageToken: res.data.nextPageToken,
         hasMore,
       };
