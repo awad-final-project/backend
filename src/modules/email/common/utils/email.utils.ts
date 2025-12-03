@@ -124,3 +124,41 @@ export function parseEmailList(emails: string): string[] {
     .map((email) => extractEmailAddress(email.trim()))
     .filter((email) => isValidEmail(email));
 }
+
+/**
+ * Extract attachments from Gmail API payload
+ */
+export function extractAttachmentsFromPayload(payload: any): Array<{
+  filename: string;
+  mimeType: string;
+  size: number;
+  attachmentId: string;
+}> {
+  const attachments: Array<{
+    filename: string;
+    mimeType: string;
+    size: number;
+    attachmentId: string;
+  }> = [];
+
+  function extractParts(part: any) {
+    if (part.filename && part.body?.attachmentId) {
+      attachments.push({
+        filename: part.filename,
+        mimeType: part.mimeType || 'application/octet-stream',
+        size: part.body.size || 0,
+        attachmentId: part.body.attachmentId,
+      });
+    }
+
+    if (part.parts) {
+      part.parts.forEach((p: any) => extractParts(p));
+    }
+  }
+
+  if (payload) {
+    extractParts(payload);
+  }
+
+  return attachments;
+}

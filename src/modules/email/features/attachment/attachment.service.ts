@@ -1,6 +1,8 @@
 import { Injectable, Logger, HttpException, HttpStatus, BadRequestException } from '@nestjs/common';
 import { AttachmentModel } from '@database/models';
 import { S3Service } from '@app/modules/storage/s3.service';
+import { EmailProviderFactory } from '@email/providers/email-provider.factory';
+import { GmailProviderService } from '@email/providers/gmail/gmail-provider.service';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface UploadedAttachment {
@@ -21,6 +23,7 @@ export class AttachmentService {
   constructor(
     private readonly attachmentModel: AttachmentModel,
     private readonly s3Service: S3Service,
+    private readonly providerFactory: EmailProviderFactory,
   ) {}
 
   /**
@@ -350,5 +353,38 @@ export class AttachmentService {
       filename: attachment.originalName,
       mimeType: attachment.mimeType,
     };
+  }
+
+  /**
+   * Download Gmail attachment
+   */
+  async downloadGmailAttachment(userId: string, emailId: string, attachmentId: string): Promise<{
+    buffer: Buffer;
+    filename: string;
+    mimeType: string;
+    size: number;
+  }> {
+    try {
+      const provider = await this.providerFactory.getProvider(userId);
+      
+      // Check if provider is Gmail
+      if (!(provider instanceof GmailProviderService)) {
+        throw new HttpException(
+          'Gmail attachment download is only available for Gmail accounts',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // Get attachment data from Gmail
+      const attachmentData = await (provider as any).downloadAttachment(userId, emailId, attachmentId);
+      
+      return attachmentData;
+    } catch (error) {
+      this.logger.error(`Failed to download Gmail attachment: ${error.message}`, error.stack);
+      throw new HttpException(
+        `Failed to download Gmail attachment: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 }

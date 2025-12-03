@@ -19,6 +19,7 @@ import { ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiBearerAuth } from '@nes
 import { memoryStorage } from 'multer';
 import { AttachmentService } from './attachment.service';
 import { JwtAuthGuard } from '@app/libs/guards/jwt-auth.guard';
+import { CurrentUser } from '@app/libs/decorators';
 
 // Multer config for serverless environment
 const multerOptions = {
@@ -130,5 +131,25 @@ export class AttachmentController {
   async deleteAttachment(@Param('attachmentId') attachmentId: string) {
     await this.attachmentService.deleteAttachment(attachmentId);
     return { message: 'Attachment deleted successfully' };
+  }
+
+  @Get('gmail/:emailId/:attachmentId/download')
+  @ApiOperation({ summary: 'Download Gmail attachment' })
+  async downloadGmailAttachment(
+    @CurrentUser() user: { userId: string },
+    @Param('emailId') emailId: string,
+    @Param('attachmentId') attachmentId: string,
+    @Res() res: Response,
+  ) {
+    const result = await this.attachmentService.downloadGmailAttachment(user.userId, emailId, attachmentId);
+
+    res.setHeader('Content-Type', result.mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(result.filename)}"`,
+    );
+    res.setHeader('Content-Length', result.size);
+
+    res.send(result.buffer);
   }
 }

@@ -14,6 +14,7 @@ import {
   extractEmailAddress,
   mapFolderToGmailLabel,
   generatePreview,
+  extractAttachmentsFromPayload,
 } from '@email/common/utils/email.utils';
 
 /**
@@ -240,6 +241,9 @@ export class GmailProviderService implements IEmailProvider {
 
       const body = extractBodyFromPayload(data.payload) || data.snippet;
 
+      // Extract attachments
+      const gmailAttachments = extractAttachmentsFromPayload(data.payload);
+
       // Mark as read
       if (data.labelIds.includes('UNREAD')) {
         await gmail.users.messages.modify({
@@ -262,6 +266,14 @@ export class GmailProviderService implements IEmailProvider {
         sentAt: date ? new Date(date) : new Date(),
         readAt: new Date(),
         folder: 'inbox',
+        attachments: gmailAttachments.map((att) => ({
+          id: att.attachmentId,
+          attachmentId: att.attachmentId,
+          filename: att.filename,
+          originalName: att.filename,
+          mimeType: att.mimeType,
+          size: att.size,
+        })),
       };
     } catch (error) {
       this.logger.error(`Failed to fetch Gmail email: ${error.message}`);
@@ -520,6 +532,69 @@ export class GmailProviderService implements IEmailProvider {
     } catch (error) {
       this.logger.error(`Failed to move email to folder: ${error.message}`);
       return false;
+    }
+  }
+
+  async downloadAttachment(userId: string, emailId: string, attachmentId: string): Promise<{
+    buffer: Buffer;
+    filename: string;
+    mimeType: string;
+    size: number;
+  }> {
+    const gmail = await this.getGmailClient(userId);
+    if (!gmail) {
+      throw new Error('Gmail not available for this user');
+    }
+
+    try {
+      // First get the email to find attachment metadata
+      const { data: messageData } = await gmail.users.messages.get({
+        userId: 'me',
+        id: emailId,
+      });
+
+      // Find the attachment part
+      let attachmentPart: any = null;
+      function findAttachment(part: any) {
+        if (part.body?.attachmentId === attachmentId) {
+          attachmentPart = part;
+          return;
+        }
+        if (part.parts) {
+          part.parts.forEach((p: any) => findAttachment(p));
+        }
+      }
+      findAttachment(messageData.payload);
+
+      if (!attachmentPart) {
+        throw new Error('Attachment not found in email');
+      }
+
+      // Download the attachment
+      const { data: attachmentData } = await gmail.users.messages.attachments.get({
+        userId: 'me',
+        messageId: emailId,
+        id: attachmentId,
+      });
+
+      // Decode base64url data
+      let data = attachmentData.data;
+      data = data.replace(/-/g, '+').replace(/_/g, '/');
+      while (data.length % 4) {
+        data += '=';
+      }
+
+      const buffer = Buffer.from(data, 'base64');
+
+      return {
+        buffer,
+        filename: attachmentPart.filename || 'attachment',
+        mimeType: attachmentPart.mimeType || 'application/octet-stream',
+        size: attachmentData.size || buffer.length,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to download Gmail attachment: ${error.message}`);
+      throw error;
     }
   }
 }
