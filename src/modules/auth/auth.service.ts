@@ -213,6 +213,7 @@ export class AuthService {
           username: userInfo.username,
           email: userInfo.email,
           role: userInfo.role || 'user',
+          picture: userInfo.picture,
         };
       } else {
         throw new HttpException('User not found', HttpStatus.NOT_FOUND);
@@ -234,7 +235,7 @@ export class AuthService {
     email: string;
     firstName: string;
     lastName: string;
-    picture: string;
+    picture?: string;
     accessToken: string;
     refreshToken?: string;
   }) {
@@ -251,6 +252,7 @@ export class AuthService {
           user.googleId = googleProfile.googleId;
           user.authProvider = 'google';
           user.googleAccessToken = googleProfile.accessToken;
+          user.picture = googleProfile.picture;
           if (googleProfile.refreshToken) {
             user.googleRefreshToken = googleProfile.refreshToken;
           }
@@ -266,11 +268,13 @@ export class AuthService {
             role: 'user',
             googleAccessToken: googleProfile.accessToken,
             googleRefreshToken: googleProfile.refreshToken,
+            picture: googleProfile.picture,
           });
         }
       } else {
-        // Update tokens for existing user
+        // Update tokens and picture for existing user
         user.googleAccessToken = googleProfile.accessToken;
+        user.picture = googleProfile.picture;
         if (googleProfile.refreshToken) {
           user.googleRefreshToken = googleProfile.refreshToken;
         }

@@ -10,6 +10,7 @@ type IAccount = {
   googleId?: string;
   googleAccessToken?: string;
   googleRefreshToken?: string;
+  picture?: string;
   authProvider?: 'local' | 'google';
   role?: string;
 };
@@ -40,6 +41,9 @@ export class Account extends Document implements IAccount {
 
   @Prop()
   googleRefreshToken?: string;
+
+  @Prop()
+  picture?: string;
 
   @Prop({ default: 'local' })
   authProvider: 'local' | 'google';

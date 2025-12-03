@@ -123,11 +123,10 @@ export class GmailProviderService implements IEmailProvider {
       const labelId = mapFolderToGmailLabel(folder);
 
       // Gmail API uses pageToken for pagination, not offset
-      // We'll cache tokens in memory (in production, use Redis/DB)
-      // For now, iterate through pages to reach requested page
+      // Iterate through pages to reach requested page
       let currentPage = 1;
       let pageToken: string | undefined = undefined;
-      let res: any;
+      let res: any = null;
 
       // Fetch pages sequentially until we reach the requested page
       while (currentPage <= page) {
@@ -138,24 +137,31 @@ export class GmailProviderService implements IEmailProvider {
           pageToken: pageToken,
         });
         
+        // If we reached the target page, stop
         if (currentPage === page) {
           break;
         }
         
+        // Get next page token for next iteration
         pageToken = res.data.nextPageToken;
         if (!pageToken) {
-          // No more pages available
+          // No more pages available, requested page doesn't exist
           return {
             emails: [],
             total: res.data.resultSizeEstimate || 0,
             page,
             limit,
-            totalPages: page, // Current page is the last page
+            totalPages: currentPage, // Last available page
             hasMore: false,
           };
         }
         
         currentPage++;
+      }
+      
+      // Ensure we have data
+      if (!res) {
+        throw new Error('Failed to fetch emails from Gmail');
       }
 
       const messages = res.data.messages || [];
@@ -193,12 +199,16 @@ export class GmailProviderService implements IEmailProvider {
       const total = res.data.resultSizeEstimate || 0;
       const hasMore = !!res.data.nextPageToken;
       
+      // Calculate estimated total pages
+      const estimatedTotalPages = Math.ceil(total / limit);
+      
       return {
         emails,
         total,
         page,
         limit,
-        totalPages: hasMore ? page + 1 : page, // If hasMore, at least one more page exists
+        // Use estimated total pages, but ensure at least page + 1 if hasMore
+        totalPages: hasMore ? Math.max(estimatedTotalPages, page + 1) : page,
         nextPageToken: res.data.nextPageToken,
         hasMore,
       };
