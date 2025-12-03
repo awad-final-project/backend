@@ -22,7 +22,7 @@ import { EmailService } from './email.service';
 import { AttachmentService } from './attachment.service';
 import { JwtAuthGuard } from '../../libs/guards/jwt-auth.guard';
 import { CurrentUser } from '../../libs/decorators';
-import { SendEmailDto } from '../../libs/dtos';
+import { SendEmailDto, ReplyEmailDto, ModifyEmailDto } from '../../libs/dtos';
 
 // Multer config for serverless environment
 const multerOptions = {
@@ -196,6 +196,32 @@ export class EmailController {
     @Param('id') id: string,
   ) {
     return this.emailService.getEmailById(user.userId, id);
+  }
+
+  @Post('send')
+  async sendEmail(
+    @CurrentUser() user: { userId: string; email: string },
+    @Body() data: SendEmailDto,
+  ) {
+    return this.emailService.sendEmail(user.userId, user.email, data);
+  }
+
+  @Post(':id/reply')
+  async replyEmail(
+    @CurrentUser() user: { userId: string; email: string },
+    @Param('id') id: string,
+    @Body() data: ReplyEmailDto,
+  ) {
+    return this.emailService.replyEmail(user.userId, user.email, id, data);
+  }
+
+  @Post(':id/modify')
+  async modifyEmail(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+    @Body() data: ModifyEmailDto,
+  ) {
+    return this.emailService.modifyEmail(user.userId, id, data);
   }
 
   @Patch(':id/star')

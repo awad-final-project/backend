@@ -64,6 +64,15 @@ jobs:
           event-type: deploy-preview
           client-payload: '{"app_name": "preview-${{ steps.branch_name.outputs.sanitized_name }}", "branch_backend": "${{ github.ref_name }}", "branch_frontend": "${{ github.ref_name }}", "domain_prefix": "preview-${{ steps.branch_name.outputs.sanitized_name }}"}'
 
+      - name: Trigger DevOps Dev Deploy
+        if: github.ref_name == 'dev' && github.event_name == 'push'
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          repository: awad-final-project/devops
+          event-type: deploy-dev
+          client-payload: '{"app_name": "dev", "branch_backend": "${{ github.ref_name }}", "branch_frontend": "${{ github.ref_name }}", "domain_name": "mail-dev.nguyenanhhao.site"}'
+
       - name: Trigger deployment
         if: github.ref == 'refs/heads/main'
         run: |
