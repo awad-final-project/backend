@@ -34,58 +34,59 @@ export class InboxService {
       const result = await provider.getEmailsByFolder(userId, folder, page, limit);
       
       // Apply client-side filters if provided
-      if (filters && Object.values(filters).some(v => v !== undefined)) {
-        let filteredEmails = result.emails;
-        
-        // Search filter (search in subject, from, preview)
-        if (filters.search) {
-          const searchLower = filters.search.toLowerCase();
-          filteredEmails = filteredEmails.filter(email => 
-            email.subject.toLowerCase().includes(searchLower) ||
-            email.from.toLowerCase().includes(searchLower) ||
-            email.preview.toLowerCase().includes(searchLower)
-          );
-        }
-        
-        // From filter
-        if (filters.from) {
-          const fromLower = filters.from.toLowerCase();
-          filteredEmails = filteredEmails.filter(email => 
-            email.from.toLowerCase().includes(fromLower)
-          );
-        }
-        
-        // Unread filter
-        if (filters.unread !== undefined) {
-          filteredEmails = filteredEmails.filter(email => 
-            email.isRead !== filters.unread
-          );
-        }
-        
-        // Starred filter
-        if (filters.starred !== undefined) {
-          filteredEmails = filteredEmails.filter(email => 
-            email.isStarred === filters.starred
-          );
-        }
-        
-        // Date range filter
-        if (filters.startDate || filters.endDate) {
-          filteredEmails = filteredEmails.filter(email => {
-            const emailDate = new Date(email.sentAt);
-            if (filters.startDate && emailDate < filters.startDate) return false;
-            if (filters.endDate && emailDate > filters.endDate) return false;
-            return true;
-          });
-        }
-        
-        return {
-          ...result,
-          emails: filteredEmails,
-          total: filteredEmails.length,
-          totalPages: Math.ceil(filteredEmails.length / limit),
-        };
-      }
+      // COMMENTED OUT: Filter UI not needed yet in frontend
+      // if (filters && Object.values(filters).some(v => v !== undefined)) {
+      //   let filteredEmails = result.emails;
+      //   
+      //   // Search filter (search in subject, from, preview)
+      //   if (filters.search) {
+      //     const searchLower = filters.search.toLowerCase();
+      //     filteredEmails = filteredEmails.filter(email => 
+      //       email.subject.toLowerCase().includes(searchLower) ||
+      //       email.from.toLowerCase().includes(searchLower) ||
+      //       email.preview.toLowerCase().includes(searchLower)
+      //     );
+      //   }
+      //   
+      //   // From filter
+      //   if (filters.from) {
+      //     const fromLower = filters.from.toLowerCase();
+      //     filteredEmails = filteredEmails.filter(email => 
+      //       email.from.toLowerCase().includes(fromLower)
+      //     );
+      //   }
+      //   
+      //   // Unread filter
+      //   if (filters.unread !== undefined) {
+      //     filteredEmails = filteredEmails.filter(email => 
+      //       email.isRead !== filters.unread
+      //     );
+      //   }
+      //   
+      //   // Starred filter
+      //   if (filters.starred !== undefined) {
+      //     filteredEmails = filteredEmails.filter(email => 
+      //       email.isStarred === filters.starred
+      //     );
+      //   }
+      //   
+      //   // Date range filter
+      //   if (filters.startDate || filters.endDate) {
+      //     filteredEmails = filteredEmails.filter(email => {
+      //       const emailDate = new Date(email.sentAt);
+      //       if (filters.startDate && emailDate < filters.startDate) return false;
+      //       if (filters.endDate && emailDate > filters.endDate) return false;
+      //       return true;
+      //     });
+      //   }
+      //   
+      //   return {
+      //     ...result,
+      //     emails: filteredEmails,
+      //     total: filteredEmails.length,
+      //     totalPages: Math.ceil(filteredEmails.length / limit),
+      //   };
+      // }
       
       return result;
     } catch (error) {
