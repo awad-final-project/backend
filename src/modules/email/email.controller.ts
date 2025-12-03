@@ -198,14 +198,6 @@ export class EmailController {
     return this.emailService.getEmailById(user.userId, id);
   }
 
-  @Post('send')
-  async sendEmail(
-    @CurrentUser() user: { userId: string; email: string },
-    @Body() data: SendEmailDto,
-  ) {
-    return this.emailService.sendEmail(user.userId, user.email, data);
-  }
-
   @Post(':id/reply')
   async replyEmail(
     @CurrentUser() user: { userId: string; email: string },

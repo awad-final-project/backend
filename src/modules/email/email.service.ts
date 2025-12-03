@@ -490,21 +490,6 @@ export class EmailService {
         const encodedMessage = Buffer.from(message).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
         
         this.logger.log(`Sending message, raw length: ${message.length}, encoded length: ${encodedMessage.length}`);
-        const body = data.body;
-
-        const message = [
-          `To: ${to}`,
-          `Subject: ${subject}`,
-          'Content-Type: text/html; charset=utf-8',
-          '',
-          body,
-        ].join('\n');
-
-        const encodedMessage = Buffer.from(message)
-          .toString('base64')
-          .replace(/\+/g, '-')
-          .replace(/\//g, '_')
-          .replace(/=+$/, '');
 
         const result = await gmail.users.messages.send({
           userId: 'me',
