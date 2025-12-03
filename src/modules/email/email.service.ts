@@ -239,12 +239,13 @@ export class EmailService {
           }),
         );
 
+        const total = res.data.resultSizeEstimate || 0;
         return {
           emails: emailDetails,
-          total: res.data.resultSizeEstimate || 0,
+          total,
           page,
           limit,
-          totalPages: 1,
+          totalPages: Math.ceil(total / limit),
         };
       } catch (error) {
         this.logger.warn(`Failed to fetch Gmail emails: ${error.message}`);
