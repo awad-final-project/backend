@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EmailProviderFactory } from '../../providers/email-provider.factory';
-import { ModifyEmailDto } from '../../../../libs/dtos';
+import { EmailProviderFactory } from '@email/providers/email-provider.factory';
+import { ModifyEmailDto } from '@app/libs/dtos';
 
 /**
  * Email Actions Service

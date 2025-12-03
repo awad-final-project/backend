@@ -1,7 +1,7 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../../libs/guards/jwt-auth.guard';
-import { CurrentUser } from '../../../../libs/decorators';
+import { JwtAuthGuard } from '@app/libs/guards/jwt-auth.guard';
+import { CurrentUser } from '@app/libs/decorators';
 import { MailboxService } from './mailbox.service';
 
 @ApiTags('Mailbox')

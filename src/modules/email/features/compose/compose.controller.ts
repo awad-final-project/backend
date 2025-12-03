@@ -1,8 +1,8 @@
 import { Controller, Post, Param, Body, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../../libs/guards/jwt-auth.guard';
-import { CurrentUser } from '../../../../libs/decorators';
-import { SendEmailDto, ReplyEmailDto } from '../../../../libs/dtos';
+import { JwtAuthGuard } from '@app/libs/guards/jwt-auth.guard';
+import { CurrentUser } from '@app/libs/decorators';
+import { SendEmailDto, ReplyEmailDto } from '@app/libs/dtos';
 import { ComposeService } from './compose.service';
 
 @ApiTags('Compose')

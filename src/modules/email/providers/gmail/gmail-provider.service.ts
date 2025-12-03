@@ -1,20 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { google } from 'googleapis';
-import { AccountModel } from '../../../../libs/database/src/models';
+import { AccountModel } from '@database/models';
 import {
   IEmailProvider,
   IEmailDetail,
   IEmailListResponse,
   IEmailPreview,
   IMailbox,
-} from '../../common/interfaces';
+} from '@email/common/interfaces';
 import {
   extractBodyFromPayload,
   extractEmailAddress,
   mapFolderToGmailLabel,
   generatePreview,
-} from '../../common/utils/email.utils';
+} from '@email/common/utils/email.utils';
 
 /**
  * Gmail Provider Service

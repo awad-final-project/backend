@@ -2,23 +2,23 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
-import { EmailModelModule, AccountModelModule } from '../../libs/database/src/models';
-import { StorageModule } from '../storage';
-import { MailModule } from '../mailer';
-import { ImapModule } from '../imap';
+import { EmailModelModule, AccountModelModule } from '@database/models';
+import { StorageModule } from '@app/modules/storage';
+import { MailModule } from '@app/modules/mailer';
+import { ImapModule } from '@app/modules/imap';
 
 // Feature Modules
-import { AttachmentModule } from './features/attachment/attachment.module';
-import { MailboxModule } from './features/mailbox/mailbox.module';
-import { InboxModule } from './features/inbox/inbox.module';
-import { ComposeModule } from './features/compose/compose.module';
-import { EmailActionsModule } from './features/actions/email-actions.module';
-import { EmailUtilsModule } from './features/utils/email-utils.module';
+import { AttachmentModule } from '@email/features/attachment/attachment.module';
+import { MailboxModule } from '@email/features/mailbox/mailbox.module';
+import { InboxModule } from '@email/features/inbox/inbox.module';
+import { ComposeModule } from '@email/features/compose/compose.module';
+import { EmailActionsModule } from '@email/features/actions/email-actions.module';
+import { EmailUtilsModule } from '@email/features/utils/email-utils.module';
 
 // Providers
-import { GmailProviderService } from './providers/gmail/gmail-provider.service';
-import { DatabaseProviderService } from './providers/database/database-provider.service';
-import { EmailProviderFactory } from './providers/email-provider.factory';
+import { GmailProviderService } from '@email/providers/gmail/gmail-provider.service';
+import { DatabaseProviderService } from '@email/providers/database/database-provider.service';
+import { EmailProviderFactory } from '@email/providers/email-provider.factory';
 
 /**
  * Email Module

@@ -1,6 +1,6 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
-import { EmailProviderFactory } from '../../providers/email-provider.factory';
-import { IEmailDetail, IEmailListResponse } from '../../common/interfaces';
+import { EmailProviderFactory } from '@email/providers/email-provider.factory';
+import { IEmailDetail, IEmailListResponse } from '@email/common/interfaces';
 
 /**
  * Inbox Service

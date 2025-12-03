@@ -1,6 +1,6 @@
 import { Injectable, Logger, HttpException, HttpStatus, BadRequestException } from '@nestjs/common';
-import { AttachmentModel } from '../../../../libs/database/src/models';
-import { S3Service } from '../../../storage/s3.service';
+import { AttachmentModel } from '@database/models';
+import { S3Service } from '@app/modules/storage/s3.service';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface UploadedAttachment {

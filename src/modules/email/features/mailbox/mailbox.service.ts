@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EmailProviderFactory } from '../../providers/email-provider.factory';
-import { IMailbox } from '../../common/interfaces';
+import { EmailProviderFactory } from '@email/providers/email-provider.factory';
+import { IMailbox } from '@email/common/interfaces';
 
 /**
  * Mailbox Service

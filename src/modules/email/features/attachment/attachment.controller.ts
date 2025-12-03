@@ -18,7 +18,7 @@ import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { memoryStorage } from 'multer';
 import { AttachmentService } from './attachment.service';
-import { JwtAuthGuard } from '../../../../libs/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '@app/libs/guards/jwt-auth.guard';
 
 // Multer config for serverless environment
 const multerOptions = {

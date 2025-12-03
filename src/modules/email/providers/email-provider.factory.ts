@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { IEmailProvider, IEmailProviderFactory } from '../../common/interfaces';
-import { GmailProviderService } from '../gmail/gmail-provider.service';
-import { DatabaseProviderService } from '../database/database-provider.service';
+import { IEmailProvider, IEmailProviderFactory } from '@email/common/interfaces';
+import { GmailProviderService } from './gmail/gmail-provider.service';
+import { DatabaseProviderService } from './database/database-provider.service';
 
 /**
  * Email Provider Factory

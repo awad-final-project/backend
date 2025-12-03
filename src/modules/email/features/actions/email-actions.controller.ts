@@ -8,9 +8,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../../libs/guards/jwt-auth.guard';
-import { CurrentUser } from '../../../../libs/decorators';
-import { ModifyEmailDto } from '../../../../libs/dtos';
+import { JwtAuthGuard } from '@app/libs/guards/jwt-auth.guard';
+import { CurrentUser } from '@app/libs/decorators';
+import { ModifyEmailDto } from '@app/libs/dtos';
 import { EmailActionsService } from './email-actions.service';
 
 @ApiTags('Email Actions')

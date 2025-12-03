@@ -1,5 +1,5 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
-import { EmailModel } from '../../../../libs/database/src/models';
+import { EmailModel } from '@database/models';
 import { faker } from '@faker-js/faker';
 
 /**

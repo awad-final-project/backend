@@ -1,14 +1,14 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
-import { EmailModel } from '../../../../libs/database/src/models';
+import { EmailModel } from '@database/models';
 import {
   IEmailProvider,
   IEmailDetail,
   IEmailListResponse,
   IEmailPreview,
   IMailbox,
-} from '../../common/interfaces';
+} from '@email/common/interfaces';
 import { isValidObjectId } from 'mongoose';
-import { generatePreview } from '../../common/utils/email.utils';
+import { generatePreview } from '@email/common/utils/email.utils';
 
 /**
  * Database Provider Service

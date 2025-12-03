@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { AttachmentController } from './attachment.controller';
 import { AttachmentService } from './attachment.service';
-import { AttachmentModelModule } from '../../../../libs/database/src/models';
-import { StorageModule } from '../../../storage';
+import { AttachmentModelModule } from '@database/models';
+import { StorageModule } from '@app/modules/storage';
 
 @Module({
   imports: [AttachmentModelModule, StorageModule],

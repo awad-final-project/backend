@@ -1,7 +1,7 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
-import { EmailProviderFactory } from '../../providers/email-provider.factory';
-import { SendEmailDto, ReplyEmailDto } from '../../../../libs/dtos';
-import { AttachmentService } from '../attachment/attachment.service';
+import { EmailProviderFactory } from '@email/providers/email-provider.factory';
+import { SendEmailDto, ReplyEmailDto } from '@app/libs/dtos';
+import { AttachmentService } from '@email/features/attachment/attachment.service';
 
 /**
  * Compose Service
