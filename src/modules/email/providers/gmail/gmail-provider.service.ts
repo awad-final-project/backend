@@ -32,11 +32,14 @@ export class GmailProviderService implements IEmailProvider {
   ) {}
 
   /**
-   * Get authenticated Gmail client for user
+   * Get authenticated Gmail client for user with automatic token refresh
    */
   private async getGmailClient(userId: string) {
     const user = await this.accountModel.findOne({ _id: userId });
-    if (!user || !user.googleAccessToken) return null;
+    if (!user || !user.googleAccessToken) {
+      this.logger.warn(`No Google access token found for user ${userId}`);
+      return null;
+    }
 
     const oauth2Client = new google.auth.OAuth2(
       this.configService.get('GOOGLE_CLIENT_ID'),
@@ -47,6 +50,21 @@ export class GmailProviderService implements IEmailProvider {
     oauth2Client.setCredentials({
       access_token: user.googleAccessToken,
       refresh_token: user.googleRefreshToken,
+    });
+
+    // Set up token refresh handler
+    oauth2Client.on('tokens', async (tokens) => {
+      this.logger.log(`Tokens refreshed for user ${userId}`);
+      if (tokens.access_token) {
+        // Update the access token in database
+        user.googleAccessToken = tokens.access_token;
+        await this.accountModel.save(user);
+      }
+      if (tokens.refresh_token) {
+        // Update refresh token if a new one is provided
+        user.googleRefreshToken = tokens.refresh_token;
+        await this.accountModel.save(user);
+      }
     });
 
     return google.gmail({ version: 'v1', auth: oauth2Client });
@@ -117,11 +135,13 @@ export class GmailProviderService implements IEmailProvider {
   ): Promise<IEmailListResponse> {
     const gmail = await this.getGmailClient(userId);
     if (!gmail) {
+      this.logger.error(`Gmail client not available for user ${userId}`);
       throw new Error('Gmail not available for this user');
     }
 
     try {
       const labelId = mapFolderToGmailLabel(folder);
+      this.logger.debug(`Fetching emails for user ${userId}, folder: ${folder}, labelId: ${labelId}, page: ${page}`);
 
       // Gmail API uses pageToken for pagination, not offset
       // Iterate through pages to reach requested page
@@ -131,12 +151,20 @@ export class GmailProviderService implements IEmailProvider {
 
       // Fetch pages sequentially until we reach the requested page
       while (currentPage <= page) {
-        res = await gmail.users.messages.list({
-          userId: 'me',
-          labelIds: labelId ? [labelId] : undefined,
-          maxResults: limit,
-          pageToken: pageToken,
-        });
+        try {
+          res = await gmail.users.messages.list({
+            userId: 'me',
+            labelIds: labelId ? [labelId] : undefined,
+            maxResults: limit,
+            pageToken: pageToken,
+          });
+        } catch (error: any) {
+          if (error.code === 401 || error.message?.includes('invalid_grant')) {
+            this.logger.error(`Authentication error for user ${userId}: ${error.message}`);
+            throw new Error('Gmail authentication expired. Please re-authenticate with Google.');
+          }
+          throw error;
+        }
         
         // If we reached the target page, stop
         if (currentPage === page) {
@@ -164,6 +192,8 @@ export class GmailProviderService implements IEmailProvider {
       if (!res) {
         throw new Error('Failed to fetch emails from Gmail');
       }
+
+      this.logger.debug(`Fetched ${res.data.messages?.length || 0} messages for user ${userId}`);
 
       const messages = res.data.messages || [];
       const emails: IEmailPreview[] = await Promise.all(
@@ -555,71 +585,86 @@ export class GmailProviderService implements IEmailProvider {
 
       this.logger.debug(`Looking for attachment ${attachmentId} in email ${emailId}`);
 
-      // Collect all attachments for debugging
-      const allAttachments: any[] = [];
-      function collectAttachments(part: any, depth = 0) {
-        if (part.body && part.body.attachmentId) {
-          allAttachments.push({
-            filename: part.filename,
-            attachmentId: part.body.attachmentId,
-            size: part.body.size,
-            mimeType: part.mimeType,
-            depth
-          });
-        }
-        if (part.parts && Array.isArray(part.parts)) {
-          part.parts.forEach((p: any) => collectAttachments(p, depth + 1));
-        }
-      }
-      collectAttachments(messageData.payload);
-      
-      this.logger.debug(`Found ${allAttachments.length} attachments: ${JSON.stringify(allAttachments.map(a => ({ filename: a.filename, id: a.attachmentId })))}`);
-
-      // Find the attachment part
+      // Helper function to recursively find attachment part
       let attachmentPart: any = null;
-      function findAttachment(part: any) {
-        // Check if this part has an attachment with matching ID
-        if (part.body && part.body.attachmentId === attachmentId) {
-          attachmentPart = part;
-          return;
-        }
-        // Recursively search in nested parts
-        if (part.parts && Array.isArray(part.parts)) {
-          for (const p of part.parts) {
-            findAttachment(p);
-            if (attachmentPart) return; // Stop if found
+      const findAttachmentPart = (parts: any[]): any => {
+        if (!parts || !Array.isArray(parts)) return null;
+        
+        for (const part of parts) {
+          // Check if this part is the attachment we're looking for
+          if (part.body && part.body.attachmentId === attachmentId && part.filename) {
+            return part;
+          }
+          
+          // Recursively check nested parts
+          if (part.parts && Array.isArray(part.parts)) {
+            const found = findAttachmentPart(part.parts);
+            if (found) return found;
           }
         }
+        return null;
+      };
+
+      // Try to find attachment in payload.parts
+      if (messageData.payload.parts) {
+        attachmentPart = findAttachmentPart(messageData.payload.parts);
       }
-      findAttachment(messageData.payload);
+      
+      // If not found in parts, check if payload itself is the attachment
+      if (!attachmentPart && messageData.payload.body && messageData.payload.body.attachmentId === attachmentId) {
+        attachmentPart = messageData.payload;
+      }
 
       if (!attachmentPart) {
-        this.logger.error(`Attachment not found. EmailId: ${emailId}, Looking for AttachmentId: ${attachmentId}`);
-        this.logger.error(`Available attachments: ${JSON.stringify(allAttachments)}`);
+        this.logger.error(`Attachment not found. EmailId: ${emailId}, AttachmentId: ${attachmentId}`);
+        // Log all available attachments for debugging
+        const debugParts: any[] = [];
+        const collectParts = (parts: any[]) => {
+          if (!parts) return;
+          parts.forEach(p => {
+            if (p.body && p.body.attachmentId) {
+              debugParts.push({ filename: p.filename, attachmentId: p.body.attachmentId });
+            }
+            if (p.parts) collectParts(p.parts);
+          });
+        };
+        if (messageData.payload.parts) collectParts(messageData.payload.parts);
+        this.logger.error(`Available attachments: ${JSON.stringify(debugParts)}`);
         throw new Error(`Attachment with ID ${attachmentId} not found in email ${emailId}`);
       }
 
-      // Download the attachment
+      this.logger.debug(`Found attachment: ${attachmentPart.filename}`);
+
+      // Download the attachment using Gmail API
       const { data: attachmentData } = await gmail.users.messages.attachments.get({
         userId: 'me',
         messageId: emailId,
         id: attachmentId,
       });
 
-      // Decode base64url data
-      let data = attachmentData.data;
-      data = data.replace(/-/g, '+').replace(/_/g, '/');
-      while (data.length % 4) {
-        data += '=';
+      if (!attachmentData || !attachmentData.data) {
+        throw new Error('No attachment data returned from Gmail API');
       }
 
-      const buffer = Buffer.from(data, 'base64');
+      // Decode Base64URL data (Gmail uses URL-safe Base64)
+      // Convert Base64URL to standard Base64
+      let base64Data = attachmentData.data;
+      base64Data = base64Data.replace(/-/g, '+').replace(/_/g, '/');
+      
+      // Add padding if needed
+      while (base64Data.length % 4) {
+        base64Data += '=';
+      }
+
+      const buffer = Buffer.from(base64Data, 'base64');
+
+      this.logger.debug(`Successfully decoded attachment: ${attachmentPart.filename}, size: ${buffer.length} bytes`);
 
       return {
         buffer,
         filename: attachmentPart.filename || 'attachment',
         mimeType: attachmentPart.mimeType || 'application/octet-stream',
-        size: attachmentData.size || buffer.length,
+        size: buffer.length,
       };
     } catch (error) {
       this.logger.error(`Failed to download Gmail attachment: ${error.message}`);
