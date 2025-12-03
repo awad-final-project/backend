@@ -193,6 +193,14 @@ export class AuthService {
 
   async logout(userId: string) {
     try {
+      // Get user to check if they have Google refresh token
+      const user = await this.accountModel.findOne({ _id: userId });
+      
+      // Revoke Google refresh token if exists
+      if (user?.googleRefreshToken) {
+        await this.revokeGoogleToken(user.googleRefreshToken);
+      }
+      
       await this.refreshTokenModel.deleteMany({ accountId: userId });
       await this.accessTokenModel.deleteMany({ accountId: userId });
       return { message: 'Logged out successfully' };
@@ -205,6 +213,31 @@ export class AuthService {
     }
   }
 
+  /**
+   * Revoke Google OAuth refresh token
+   * @param refreshToken - Google refresh token to revoke
+   */
+  private async revokeGoogleToken(refreshToken: string): Promise<void> {
+    try {
+      const revokeUrl = `https://oauth2.googleapis.com/revoke?token=${refreshToken}`;
+      const response = await fetch(revokeUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      });
+
+      if (response.ok) {
+        this.logger.log('Google refresh token revoked successfully');
+      } else {
+        this.logger.warn(`Failed to revoke Google token: ${response.status} ${response.statusText}`);
+      }
+    } catch (error) {
+      // Don't throw error, just log it - logout should still succeed
+      this.logger.error(`Error revoking Google token: ${error.message}`);
+    }
+  }
+
   async getUserInfo(userId: string) {
     try {
       const userInfo = await this.accountModel.findOne({ _id: userId });
@@ -213,6 +246,7 @@ export class AuthService {
           username: userInfo.username,
           email: userInfo.email,
           role: userInfo.role || 'user',
+          picture: userInfo.picture,
         };
       } else {
         throw new HttpException('User not found', HttpStatus.NOT_FOUND);
@@ -234,7 +268,7 @@ export class AuthService {
     email: string;
     firstName: string;
     lastName: string;
-    picture: string;
+    picture?: string;
     accessToken: string;
     refreshToken?: string;
   }) {
@@ -251,6 +285,7 @@ export class AuthService {
           user.googleId = googleProfile.googleId;
           user.authProvider = 'google';
           user.googleAccessToken = googleProfile.accessToken;
+          user.picture = googleProfile.picture;
           if (googleProfile.refreshToken) {
             user.googleRefreshToken = googleProfile.refreshToken;
           }
@@ -266,11 +301,13 @@ export class AuthService {
             role: 'user',
             googleAccessToken: googleProfile.accessToken,
             googleRefreshToken: googleProfile.refreshToken,
+            picture: googleProfile.picture,
           });
         }
       } else {
-        // Update tokens for existing user
+        // Update tokens and picture for existing user
         user.googleAccessToken = googleProfile.accessToken;
+        user.picture = googleProfile.picture;
         if (googleProfile.refreshToken) {
           user.googleRefreshToken = googleProfile.refreshToken;
         }

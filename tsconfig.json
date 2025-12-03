@@ -20,7 +20,11 @@
     "paths": {
       "@app/*": ["./src/*"],
       "@database/*": ["./src/libs/database/src/*"],
-      "@utils/*": ["./src/libs/utils/*"]
+      "@utils/*": ["./src/libs/utils/*"],
+      "@email/*": ["./src/modules/email/*"],
+      "@email/common/*": ["./src/modules/email/common/*"],
+      "@email/features/*": ["./src/modules/email/features/*"],
+      "@email/providers/*": ["./src/modules/email/providers/*"]
     }
   },
   "include": ["src/**/*", "src/libs/**/*"]

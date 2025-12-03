@@ -1,26 +1,47 @@
 import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
-import { PassportModule } from '@nestjs/passport';
-import { ConfigService } from '@nestjs/config';
-import { EmailController } from './email.controller';
-import { EmailService } from './email.service';
-import { EmailModelModule, AccountModelModule, AccessTokenModelModule } from '../../libs/database/src/models';
 
+// Providers Module (shared across features)
+import { EmailProvidersModule } from '@email/providers/email-providers.module';
+
+// Feature Modules
+import { AttachmentModule } from '@email/features/attachment/attachment.module';
+import { MailboxModule } from '@email/features/mailbox/mailbox.module';
+import { InboxModule } from '@email/features/inbox/inbox.module';
+import { ComposeModule } from '@email/features/compose/compose.module';
+import { EmailActionsModule } from '@email/features/actions/email-actions.module';
+import { EmailUtilsModule } from '@email/features/utils/email-utils.module';
+import { DraftsModule } from '@email/features/drafts/drafts.module';
+import { NotificationsModule } from '@email/features/notifications/notifications.module';
+
+/**
+ * Email Module
+ * Aggregates all email-related features into a cohesive module
+ * Following Modular Architecture and Feature-based organization
+ */
 @Module({
   imports: [
-    PassportModule,
-    JwtModule.registerAsync({
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: '15m' },
-      }),
-      inject: [ConfigService],
-    }),
-    EmailModelModule,
-    AccountModelModule,
-    AccessTokenModelModule,
+    // Shared Providers
+    EmailProvidersModule,
+    // Feature Modules
+    AttachmentModule,
+    MailboxModule,
+    InboxModule,
+    ComposeModule,
+    EmailActionsModule,
+    EmailUtilsModule,
+    DraftsModule,
+    NotificationsModule,
   ],
-  controllers: [EmailController],
-  providers: [EmailService],
+  exports: [
+    EmailProvidersModule,
+    AttachmentModule,
+    MailboxModule,
+    InboxModule,
+    ComposeModule,
+    EmailActionsModule,
+    EmailUtilsModule,
+    DraftsModule,
+    NotificationsModule,
+  ],
 })
 export class EmailModule {}
