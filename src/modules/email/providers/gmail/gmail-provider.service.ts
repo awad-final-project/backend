@@ -122,11 +122,39 @@ export class GmailProviderService implements IEmailProvider {
     try {
       const labelId = mapFolderToGmailLabel(folder);
 
-      const res = await gmail.users.messages.list({
-        userId: 'me',
-        labelIds: labelId ? [labelId] : undefined,
-        maxResults: limit,
-      });
+      // Gmail API doesn't support offset, so we need to fetch pages sequentially
+      // For page > 1, we need to iterate through pageTokens
+      let currentPage = 1;
+      let pageToken: string | undefined = undefined;
+      let res: any;
+
+      // Fetch all pages up to the requested page
+      while (currentPage <= page) {
+        res = await gmail.users.messages.list({
+          userId: 'me',
+          labelIds: labelId ? [labelId] : undefined,
+          maxResults: limit,
+          pageToken: pageToken,
+        });
+        
+        if (currentPage === page) {
+          break;
+        }
+        
+        pageToken = res.data.nextPageToken;
+        if (!pageToken) {
+          // No more pages available
+          return {
+            emails: [],
+            total: res.data.resultSizeEstimate || 0,
+            page,
+            limit,
+            totalPages: Math.ceil((res.data.resultSizeEstimate || 0) / limit),
+          };
+        }
+        
+        currentPage++;
+      }
 
       const messages = res.data.messages || [];
       const emails: IEmailPreview[] = await Promise.all(
