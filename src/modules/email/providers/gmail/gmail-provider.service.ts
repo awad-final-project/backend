@@ -556,18 +556,24 @@ export class GmailProviderService implements IEmailProvider {
       // Find the attachment part
       let attachmentPart: any = null;
       function findAttachment(part: any) {
-        if (part.body?.attachmentId === attachmentId) {
+        // Check if this part has an attachment with matching ID
+        if (part.body && part.body.attachmentId === attachmentId) {
           attachmentPart = part;
           return;
         }
-        if (part.parts) {
-          part.parts.forEach((p: any) => findAttachment(p));
+        // Recursively search in nested parts
+        if (part.parts && Array.isArray(part.parts)) {
+          for (const p of part.parts) {
+            findAttachment(p);
+            if (attachmentPart) return; // Stop if found
+          }
         }
       }
       findAttachment(messageData.payload);
 
       if (!attachmentPart) {
-        throw new Error('Attachment not found in email');
+        this.logger.error(`Attachment not found. EmailId: ${emailId}, AttachmentId: ${attachmentId}`);
+        throw new Error(`Attachment with ID ${attachmentId} not found in email ${emailId}`);
       }
 
       // Download the attachment
