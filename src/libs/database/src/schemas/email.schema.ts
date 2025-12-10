@@ -30,6 +30,11 @@ type IEmail = {
   inReplyTo?: string;
   attachments?: IAttachmentRef[];
   hasAttachments?: boolean;
+  isSnoozed?: boolean;
+  snoozeUntil?: Date;
+  snoozedAt?: Date;
+  aiSummary?: string;
+  summarizedAt?: Date;
 };
 
 @Schema({
@@ -100,6 +105,21 @@ export class Email extends Document implements IEmail {
 
   @Prop({ default: false })
   hasAttachments?: boolean;
+
+  @Prop({ default: false })
+  isSnoozed?: boolean;
+
+  @Prop()
+  snoozeUntil?: Date;
+
+  @Prop()
+  snoozedAt?: Date;
+
+  @Prop({ type: String })
+  aiSummary?: string;
+
+  @Prop()
+  summarizedAt?: Date;
 }
 
 export const EmailSchema = SchemaFactory.createForClass(Email);

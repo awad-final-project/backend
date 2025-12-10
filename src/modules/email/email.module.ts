@@ -12,6 +12,8 @@ import { EmailActionsModule } from '@email/features/actions/email-actions.module
 import { EmailUtilsModule } from '@email/features/utils/email-utils.module';
 import { DraftsModule } from '@email/features/drafts/drafts.module';
 import { NotificationsModule } from '@email/features/notifications/notifications.module';
+import { SnoozeModule } from '@email/features/snooze/snooze.module';
+import { AiModule } from '@email/features/ai/ai.module';
 
 /**
  * Email Module
@@ -31,6 +33,8 @@ import { NotificationsModule } from '@email/features/notifications/notifications
     EmailUtilsModule,
     DraftsModule,
     NotificationsModule,
+    SnoozeModule,
+    AiModule,
   ],
   exports: [
     EmailProvidersModule,
@@ -42,6 +46,8 @@ import { NotificationsModule } from '@email/features/notifications/notifications
     EmailUtilsModule,
     DraftsModule,
     NotificationsModule,
+    SnoozeModule,
+    AiModule,
   ],
 })
 export class EmailModule {}
