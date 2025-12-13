@@ -124,35 +124,38 @@ export class EmailUtilsService {
 
   async seedMockEmails(userId: string, userEmail: string) {
     try {
+      // Check existing emails and allow re-seeding
       const existingEmails = await this.emailModel.countDocuments({
         accountId: userId,
       });
       
       if (existingEmails > 0) {
-        this.logger.warn(`User ${userId} already has ${existingEmails} emails. Skipping seed.`);
-        return { 
-          message: `Mock emails already exist for this user (${existingEmails} emails found)`,
-          count: existingEmails,
-        };
+        this.logger.log(`User ${userId} has ${existingEmails} existing emails. Clearing for fresh seed...`);
+        // Delete existing mock emails for this user to allow re-seeding
+        await this.emailModel.deleteMany({ accountId: userId });
+        this.logger.log(`Cleared ${existingEmails} existing emails.`);
       }
 
       const mockEmails = [];
-      const folders = ['inbox', 'sent', 'archive'];
-      const totalEmails = 50; // Increased from 30
+      const folders = ['inbox', 'sent', 'archive', 'trash'];
+      const totalEmails = faker.number.int({ min: 80, max: 120 }); // More varied count
 
-      // Generate realistic contacts
-      const contacts = Array.from({ length: 15 }, () => ({
+      // Generate realistic contacts with diverse domains
+      const domains = ['gmail.com', 'outlook.com', 'company.com', 'startup.io', 'tech.dev', 'corporate.net'];
+      const contacts = Array.from({ length: 25 }, () => ({
         name: faker.person.fullName(),
-        email: faker.internet.email(),
+        email: faker.internet.email().replace(/@.*$/, `@${faker.helpers.arrayElement(domains)}`),
+        company: faker.company.name(),
+        jobTitle: faker.person.jobTitle(),
       }));
 
       // Generate email threads (conversations)
       const threads = [];
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 15; i++) {
         const template = faker.helpers.arrayElement(this.emailTemplates);
         const subject = faker.helpers.arrayElement(template.subjects);
         const contact = faker.helpers.arrayElement(contacts);
-        const threadLength = faker.number.int({ min: 1, max: 4 });
+        const threadLength = faker.number.int({ min: 1, max: 6 });
         
         threads.push({
           subject,
@@ -164,50 +167,125 @@ export class EmailUtilsService {
 
       // Generate threaded emails
       for (const thread of threads) {
-        const baseDate = faker.date.recent({ days: 30 });
+        const baseDate = faker.date.recent({ days: 60 });
+        const hasAttachment = faker.datatype.boolean(0.3); // 30% of threads have attachments
         
         for (let i = 0; i < thread.count; i++) {
           const isReply = i > 0;
           const isIncoming = i % 2 === 0;
-          const sentDate = new Date(baseDate.getTime() + i * 3600000 * faker.number.int({ min: 1, max: 48 })); // Add hours between replies
+          const sentDate = new Date(baseDate.getTime() + i * 3600000 * faker.number.int({ min: 1, max: 72 }));
           
           const body = thread.template.bodyGenerator();
-          const subject = isReply ? `Re: ${thread.subject.replace('Re: ', '')}` : thread.subject;
+          const subject = isReply ? `Re: ${thread.subject.replace(/^Re: /, '')}` : thread.subject;
+
+          // Generate attachments for some emails
+          const attachments = hasAttachment && faker.datatype.boolean(0.5) ? [
+            {
+              filename: faker.helpers.arrayElement([
+                `${faker.word.noun()}_report.pdf`,
+                `presentation_${faker.date.month()}.pptx`,
+                `data_${faker.number.int({ min: 100, max: 999 })}.xlsx`,
+                `image_${faker.word.adjective()}.png`,
+                `document_final_v${faker.number.int({ min: 1, max: 5 })}.docx`,
+              ]),
+              size: faker.number.int({ min: 10000, max: 5000000 }),
+              mimeType: faker.helpers.arrayElement([
+                'application/pdf',
+                'application/vnd.ms-excel',
+                'image/png',
+                'application/msword',
+              ]),
+            },
+          ] : [];
 
           mockEmails.push({
             from: isIncoming ? thread.contact.email : userEmail,
             to: isIncoming ? userEmail : thread.contact.email,
             subject,
             body,
-            preview: body.substring(0, 150).replace(/\n/g, ' '),
-            isRead: faker.datatype.boolean(0.7), // 70% read
-            isStarred: faker.datatype.boolean(0.15), // 15% starred
-            folder: isIncoming ? 'inbox' : faker.helpers.arrayElement(['sent', 'sent', 'archive']),
+            preview: body.substring(0, 150).replace(/\n/g, ' ').trim(),
+            isRead: faker.datatype.boolean(isIncoming ? 0.65 : 0.95), // Sent emails usually marked read
+            isStarred: faker.datatype.boolean(0.18), // 18% starred
+            hasAttachments: attachments.length > 0,
+            attachments,
+            folder: isIncoming ? 'inbox' : faker.helpers.arrayElement(['sent', 'sent', 'sent', 'archive']),
+            labels: this.generateRandomLabels(),
+            priority: faker.helpers.arrayElement(['high', 'normal', 'normal', 'normal', 'low']),
             sentAt: sentDate,
             accountId: userId,
           });
         }
       }
 
-      // Generate additional standalone emails
+      // Generate additional standalone emails (newsletters, notifications, spam)
       const remainingCount = totalEmails - mockEmails.length;
       for (let i = 0; i < remainingCount; i++) {
         const template = faker.helpers.arrayElement(this.emailTemplates);
         const subject = faker.helpers.arrayElement(template.subjects);
         const contact = faker.helpers.arrayElement(contacts);
-        const isIncoming = faker.datatype.boolean(0.6); // 60% incoming
+        const isIncoming = faker.datatype.boolean(0.7); // 70% incoming
         const body = template.bodyGenerator();
+        const hasAttachment = faker.datatype.boolean(0.25);
+
+        const attachments = hasAttachment ? Array.from(
+          { length: faker.number.int({ min: 1, max: 3 }) },
+          () => ({
+            filename: faker.system.fileName(),
+            size: faker.number.int({ min: 5000, max: 3000000 }),
+            mimeType: faker.system.mimeType(),
+          })
+        ) : [];
+
+        // Some emails go to trash
+        const isTrash = faker.datatype.boolean(0.1);
+        const folder = isTrash ? 'trash' : (
+          isIncoming ? faker.helpers.arrayElement(['inbox', 'inbox', 'inbox', 'archive']) 
+          : faker.helpers.arrayElement(['sent', 'sent', 'archive'])
+        );
 
         mockEmails.push({
           from: isIncoming ? contact.email : userEmail,
           to: isIncoming ? userEmail : contact.email,
           subject,
           body,
-          preview: body.substring(0, 150).replace(/\n/g, ' '),
-          isRead: faker.datatype.boolean(0.65),
-          isStarred: faker.datatype.boolean(0.12),
-          folder: isIncoming ? 'inbox' : faker.helpers.arrayElement(['sent', 'sent', 'archive']),
-          sentAt: faker.date.recent({ days: 30 }),
+          preview: body.substring(0, 150).replace(/\n/g, ' ').trim(),
+          isRead: isTrash ? true : faker.datatype.boolean(0.6),
+          isStarred: isTrash ? false : faker.datatype.boolean(0.12),
+          hasAttachments: attachments.length > 0,
+          attachments,
+          folder,
+          labels: this.generateRandomLabels(),
+          priority: faker.helpers.arrayElement(['high', 'normal', 'normal', 'normal', 'normal', 'low']),
+          sentAt: faker.date.recent({ days: 90 }),
+          accountId: userId,
+        });
+      }
+
+      // Add some important/urgent emails
+      for (let i = 0; i < 5; i++) {
+        const contact = faker.helpers.arrayElement(contacts);
+        const urgentSubjects = [
+          '🚨 URGENT: Production Server Down',
+          '⚠️ Critical Bug in Latest Release',
+          '🔥 HOT FIX Required Immediately',
+          '❗ Security Vulnerability Detected',
+          '⏰ Deadline Extended - Action Required',
+        ];
+
+        mockEmails.push({
+          from: contact.email,
+          to: userEmail,
+          subject: urgentSubjects[i],
+          body: `**URGENT ACTION REQUIRED**\n\n${faker.lorem.paragraphs(2)}\n\nPlease respond ASAP.\n\n${contact.name}\n${contact.jobTitle}`,
+          preview: 'URGENT ACTION REQUIRED - ' + faker.lorem.sentence(),
+          isRead: faker.datatype.boolean(0.4), // Urgent emails less likely to be read yet
+          isStarred: true, // Star all urgent
+          hasAttachments: false,
+          attachments: [],
+          folder: 'inbox',
+          labels: ['urgent', 'work'],
+          priority: 'high',
+          sentAt: faker.date.recent({ days: 3 }),
           accountId: userId,
         });
       }
@@ -220,18 +298,23 @@ export class EmailUtilsService {
         await this.emailModel.save(email);
       }
 
-      this.logger.log(`Seeded ${mockEmails.length} realistic mock emails for user ${userId}`);
+      const breakdown = {
+        inbox: mockEmails.filter(e => e.folder === 'inbox').length,
+        sent: mockEmails.filter(e => e.folder === 'sent').length,
+        archived: mockEmails.filter(e => e.folder === 'archive').length,
+        trash: mockEmails.filter(e => e.folder === 'trash').length,
+        starred: mockEmails.filter(e => e.isStarred).length,
+        unread: mockEmails.filter(e => !e.isRead).length,
+        withAttachments: mockEmails.filter(e => e.hasAttachments).length,
+        highPriority: mockEmails.filter(e => e.priority === 'high').length,
+      };
+
+      this.logger.log(`Seeded ${mockEmails.length} diverse mock emails for user ${userId}`, breakdown);
 
       return {
-        message: `Successfully seeded ${mockEmails.length} realistic mock emails with conversations and threads`,
+        message: `Successfully seeded ${mockEmails.length} realistic mock emails with threads, attachments, and labels`,
         count: mockEmails.length,
-        breakdown: {
-          inbox: mockEmails.filter(e => e.folder === 'inbox').length,
-          sent: mockEmails.filter(e => e.folder === 'sent').length,
-          archived: mockEmails.filter(e => e.folder === 'archive').length,
-          starred: mockEmails.filter(e => e.isStarred).length,
-          unread: mockEmails.filter(e => !e.isRead).length,
-        },
+        breakdown,
       };
     } catch (error) {
       this.logger.error(`Error seeding mock emails: ${error.message}`);
@@ -240,5 +323,18 @@ export class EmailUtilsService {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  private generateRandomLabels(): string[] {
+    const allLabels = [
+      'work', 'personal', 'urgent', 'important', 'finance', 
+      'travel', 'receipts', 'invoices', 'newsletters', 'social',
+      'promotions', 'updates', 'alerts', 'reports', 'meetings'
+    ];
+    
+    const count = faker.number.int({ min: 0, max: 3 });
+    if (count === 0) return [];
+    
+    return faker.helpers.arrayElements(allLabels, count);
   }
 }

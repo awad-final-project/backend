@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { google } from 'googleapis';
+import { google, gmail_v1 } from 'googleapis';
 import { AccountModel } from '@database/models';
 import {
   IEmailProvider,
@@ -8,6 +8,7 @@ import {
   IEmailListResponse,
   IEmailPreview,
   IMailbox,
+  EmailFilterOptions,
 } from '@email/common/interfaces';
 import {
   extractBodyFromPayload,
@@ -25,6 +26,7 @@ import {
 @Injectable()
 export class GmailProviderService implements IEmailProvider {
   private readonly logger = new Logger(GmailProviderService.name);
+  private readonly labelCache = new Map<string, Map<string, string>>();
 
   constructor(
     private readonly accountModel: AccountModel,
@@ -103,21 +105,21 @@ export class GmailProviderService implements IEmailProvider {
         {
           id: 'starred',
           name: 'Starred',
-          count: getCount('STARRED'),
+          count: getCount('STARRED', true),
           icon: 'star',
         },
-        { id: 'sent', name: 'Sent', count: getCount('SENT'), icon: 'send' },
+        { id: 'sent', name: 'Sent', count: getCount('SENT', true), icon: 'send' },
         {
           id: 'drafts',
           name: 'Drafts',
-          count: getCount('DRAFT'),
+          count: getCount('DRAFT', true),
           icon: 'file',
         },
         { id: 'archive', name: 'Archive', count: 0, icon: 'archive' },
         {
           id: 'trash',
           name: 'Trash',
-          count: getCount('TRASH'),
+          count: getCount('TRASH', true),
           icon: 'trash',
         },
       ];
@@ -210,6 +212,17 @@ export class GmailProviderService implements IEmailProvider {
           const to = headers.find((h) => h.name === 'To')?.value || '';
           const date = headers.find((h) => h.name === 'Date')?.value;
 
+          // Extract custom labels (exclude system labels)
+          const systemLabels = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'UNREAD', 'STARRED', 'IMPORTANT', 'CATEGORY_PERSONAL', 'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS'];
+          const allLabelIds = data.labelIds || [];
+          const customLabelIds = allLabelIds.filter(labelId => !systemLabels.includes(labelId));
+          
+          const customLabels = customLabelIds.map(labelId => {
+            // Try to get label name from cache or use ID
+            const labelName = this.getLabelNameFromCache(userId, labelId);
+            return labelName || labelId;
+          });
+
           return {
             id: data.id,
             from: extractEmailAddress(from),
@@ -223,6 +236,7 @@ export class GmailProviderService implements IEmailProvider {
             hasAttachments: data.payload.parts?.some(
               (part) => part.filename && part.filename.length > 0,
             ),
+            labels: customLabels.length > 0 ? customLabels : [], // Always return array, never undefined
           };
         }),
       );
@@ -283,6 +297,15 @@ export class GmailProviderService implements IEmailProvider {
         });
       }
 
+      // Extract custom labels (exclude system labels)
+      const systemLabels = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'UNREAD', 'STARRED', 'IMPORTANT', 'CATEGORY_PERSONAL', 'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS'];
+      const customLabels = (data.labelIds || [])
+        .filter(labelId => !systemLabels.includes(labelId))
+        .map(labelId => {
+          const labelName = this.getLabelNameFromCache(userId, labelId);
+          return labelName || labelId;
+        });
+
       return {
         id: data.id,
         from: extractEmailAddress(from),
@@ -296,6 +319,7 @@ export class GmailProviderService implements IEmailProvider {
         sentAt: date ? new Date(date) : new Date(),
         readAt: new Date(),
         folder: 'inbox',
+        labels: customLabels,
         attachments: gmailAttachments.map((att) => ({
           id: att.attachmentId,
           attachmentId: att.attachmentId,
@@ -309,6 +333,44 @@ export class GmailProviderService implements IEmailProvider {
       this.logger.error(`Failed to fetch Gmail email: ${error.message}`);
       return null;
     }
+  }
+
+  async getEmailIdsForFolder(
+    userId: string,
+    folder: string,
+    filters?: EmailFilterOptions,
+  ): Promise<string[]> {
+    const gmail = await this.getGmailClient(userId);
+    if (!gmail) {
+      throw new Error('Gmail not available for this user');
+    }
+
+    const labelId = mapFolderToGmailLabel(folder);
+    const query = this.buildGmailQuery(filters);
+    const ids: string[] = [];
+    let pageToken: string | undefined = undefined;
+
+    do {
+      const response = await gmail.users.messages.list({
+        userId: 'me',
+        labelIds: labelId ? [labelId] : undefined,
+        q: query || undefined,
+        maxResults: 500,
+        pageToken,
+      });
+
+      if (response.data.messages?.length) {
+        response.data.messages.forEach((message) => {
+          if (message.id) {
+            ids.push(message.id);
+          }
+        });
+      }
+
+      pageToken = response.data.nextPageToken ?? undefined;
+    } while (pageToken);
+
+    return ids;
   }
 
   async sendEmail(
@@ -532,10 +594,27 @@ export class GmailProviderService implements IEmailProvider {
     if (!gmail) return false;
 
     try {
-      await gmail.users.messages.trash({
+      const { data } = await gmail.users.messages.get({
         userId: 'me',
         id: emailId,
+        format: 'metadata',
+        metadataHeaders: [],
       });
+
+      const isInTrash = data.labelIds?.includes('TRASH');
+
+      if (isInTrash) {
+        await gmail.users.messages.delete({
+          userId: 'me',
+          id: emailId,
+        });
+      } else {
+        await gmail.users.messages.trash({
+          userId: 'me',
+          id: emailId,
+        });
+      }
+
       return true;
     } catch (error) {
       this.logger.error(`Failed to delete email: ${error.message}`);
@@ -563,6 +642,201 @@ export class GmailProviderService implements IEmailProvider {
       this.logger.error(`Failed to move email to folder: ${error.message}`);
       return false;
     }
+  }
+
+  async addLabel(userId: string, emailId: string, label: string): Promise<boolean> {
+    if (!label) {
+      return false;
+    }
+
+    const gmail = await this.getGmailClient(userId);
+    if (!gmail) {
+      return false;
+    }
+
+    try {
+      const labelId = await this.resolveLabelId(gmail, userId, label, true);
+      if (!labelId) {
+        return false;
+      }
+
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id: emailId,
+        requestBody: { addLabelIds: [labelId] },
+      });
+
+      return true;
+    } catch (error) {
+      this.logger.warn(`Failed to add label ${label} to email ${emailId}: ${error.message}`);
+      return false;
+    }
+  }
+
+  async removeLabel(userId: string, emailId: string, label: string): Promise<boolean> {
+    if (!label) {
+      return false;
+    }
+
+    const gmail = await this.getGmailClient(userId);
+    if (!gmail) {
+      return false;
+    }
+
+    try {
+      const labelId = await this.resolveLabelId(gmail, userId, label, false);
+      if (!labelId) {
+        return false;
+      }
+
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id: emailId,
+        requestBody: { removeLabelIds: [labelId] },
+      });
+
+      return true;
+    } catch (error) {
+      this.logger.warn(`Failed to remove label ${label} from email ${emailId}: ${error.message}`);
+      return false;
+    }
+  }
+
+  async updateLabels(userId: string, emailId: string, labels: string[]): Promise<{ labels: string[] }> {
+    const gmail = await this.getGmailClient(userId);
+    if (!gmail) {
+      this.logger.warn(`Gmail client not available for user ${userId}`);
+      return { labels: [] };
+    }
+
+    try {
+      // Get current message to see existing labels
+      const { data: message } = await gmail.users.messages.get({
+        userId: 'me',
+        id: emailId,
+        format: 'metadata',
+        metadataHeaders: [],
+      });
+
+      const currentLabelIds = message.labelIds || [];
+      
+      // Filter out system labels (INBOX, STARRED, TRASH, etc.) - we don't want to modify those
+      const systemLabels = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'UNREAD', 'STARRED', 'IMPORTANT'];
+      const currentCustomLabels = currentLabelIds.filter(id => !systemLabels.includes(id));
+
+      // Resolve new label IDs (create if they don't exist)
+      const newLabelIds: string[] = [];
+      for (const label of labels) {
+        if (!label) continue;
+        const labelId = await this.resolveLabelId(gmail, userId, label, true);
+        if (labelId && !systemLabels.includes(labelId)) {
+          newLabelIds.push(labelId);
+        }
+      }
+
+      // Calculate which labels to add and remove
+      const labelsToAdd = newLabelIds.filter(id => !currentCustomLabels.includes(id));
+      const labelsToRemove = currentCustomLabels.filter(id => !newLabelIds.includes(id));
+
+      // Only make API call if there are changes
+      if (labelsToAdd.length > 0 || labelsToRemove.length > 0) {
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id: emailId,
+          requestBody: {
+            addLabelIds: labelsToAdd,
+            removeLabelIds: labelsToRemove,
+          },
+        });
+
+        this.logger.log(`Updated labels for email ${emailId}: +${labelsToAdd.length}, -${labelsToRemove.length}`);
+      }
+
+      return { labels };
+    } catch (error) {
+      this.logger.error(`Failed to update labels for email ${emailId}:`, error);
+      return { labels: [] };
+    }
+  }
+
+  private async resolveLabelId(
+    gmail: gmail_v1.Gmail,
+    userId: string,
+    labelName: string,
+    createIfMissing: boolean,
+  ): Promise<string | null> {
+    const normalizedKey = labelName.trim();
+    if (!normalizedKey) {
+      return null;
+    }
+
+    const key = normalizedKey.toUpperCase();
+    const cachedKey = this.labelCache.get(userId)?.get(key);
+    if (cachedKey) {
+      return cachedKey;
+    }
+
+    const {
+      data: { labels },
+    } = await gmail.users.labels.list({ userId: 'me' });
+
+    const existing = labels?.find(
+      (label) =>
+        label.id === normalizedKey ||
+        label.id === key ||
+        label.name?.toUpperCase() === key,
+    );
+
+    if (existing?.id) {
+      this.cacheLabelId(userId, key, existing.id);
+      return existing.id;
+    }
+
+    if (!createIfMissing) {
+      return null;
+    }
+
+    try {
+      const { data } = await gmail.users.labels.create({
+        userId: 'me',
+        requestBody: {
+          name: normalizedKey,
+          labelListVisibility: 'labelShow',
+          messageListVisibility: 'show',
+        },
+      });
+
+      if (data.id) {
+        this.cacheLabelId(userId, key, data.id);
+        return data.id;
+      }
+    } catch (error) {
+      this.logger.warn(`Unable to create Gmail label ${labelName}: ${error.message}`);
+    }
+
+    return null;
+  }
+
+  private cacheLabelId(userId: string, key: string, labelId: string): void {
+    if (!this.labelCache.has(userId)) {
+      this.labelCache.set(userId, new Map());
+    }
+    this.labelCache.get(userId)!.set(key, labelId);
+  }
+
+  private getLabelNameFromCache(userId: string, labelId: string): string | null {
+    const userCache = this.labelCache.get(userId);
+    if (!userCache) return null;
+    
+    // Reverse lookup: find key by value
+    for (const [key, cachedId] of userCache.entries()) {
+      if (cachedId === labelId) {
+        // Return the original case-sensitive label name
+        return key.toLowerCase();
+      }
+    }
+    
+    return null;
   }
 
   async downloadAttachment(userId: string, emailId: string, attachmentId: string): Promise<{
@@ -694,5 +968,41 @@ export class GmailProviderService implements IEmailProvider {
       this.logger.error(`Failed to download Gmail attachment: ${error.message}`);
       throw error;
     }
+  }
+
+  private buildGmailQuery(filters?: EmailFilterOptions): string {
+    if (!filters) return '';
+    const parts: string[] = [];
+
+    if (filters.search) {
+      parts.push(filters.search);
+    }
+    if (filters.from) {
+      parts.push(`from:${filters.from}`);
+    }
+    if (filters.unread) {
+      parts.push('is:unread');
+    }
+    if (filters.starred) {
+      parts.push('is:starred');
+    }
+    if (filters.hasAttachments) {
+      parts.push('has:attachment');
+    }
+    if (filters.startDate) {
+      parts.push(`after:${this.formatDateForQuery(filters.startDate)}`);
+    }
+    if (filters.endDate) {
+      parts.push(`before:${this.formatDateForQuery(filters.endDate)}`);
+    }
+
+    return parts.join(' ').trim();
+  }
+
+  private formatDateForQuery(date: Date): string {
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    return `${year}/${month}/${day}`;
   }
 }

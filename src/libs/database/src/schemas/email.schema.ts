@@ -30,6 +30,8 @@ type IEmail = {
   inReplyTo?: string;
   attachments?: IAttachmentRef[];
   hasAttachments?: boolean;
+  labels?: string[];
+  priority?: 'high' | 'normal' | 'low';
   isSnoozed?: boolean;
   snoozeUntil?: Date;
   snoozedAt?: Date;
@@ -105,6 +107,12 @@ export class Email extends Document implements IEmail {
 
   @Prop({ default: false })
   hasAttachments?: boolean;
+
+  @Prop({ type: [String], default: [] })
+  labels?: string[];
+
+  @Prop({ type: String, enum: ['high', 'normal', 'low'], default: 'normal' })
+  priority?: 'high' | 'normal' | 'low';
 
   @Prop({ default: false })
   isSnoozed?: boolean;

@@ -64,6 +64,15 @@ export class SnoozeService {
       throw new Error('Snooze time must be in the future');
     }
 
+    // Get current email to preserve existing labels
+    const email = await this.emailModel.findById(emailId);
+    const currentLabels = email?.labels || [];
+    
+    // Add 'snoozed' label if not already present
+    const updatedLabels = currentLabels.includes('snoozed') 
+      ? currentLabels 
+      : [...currentLabels, 'snoozed'];
+
     await this.emailModel.updateOne(
       { _id: emailId },
       {
@@ -72,23 +81,32 @@ export class SnoozeService {
           snoozeUntil,
           snoozedAt: now,
           folder: 'snoozed', // Move to snoozed folder (out of inbox)
+          labels: updatedLabels, // Add 'snoozed' label for Kanban
         },
       },
     );
 
-    this.logger.log(`Email ${emailId} snoozed until ${snoozeUntil.toISOString()}, moved to snoozed folder`);
+    this.logger.log(`Email ${emailId} snoozed until ${snoozeUntil.toISOString()}, moved to snoozed folder with label`);
   }
 
   /**
    * Manually unsnooze an email
    */
   async unsnoozeEmail(emailId: string): Promise<void> {
+    // Get current email to update labels
+    const email = await this.emailModel.findById(emailId);
+    const currentLabels = email?.labels || [];
+    
+    // Remove 'snoozed' label
+    const updatedLabels = currentLabels.filter(label => label !== 'snoozed');
+
     await this.emailModel.updateOne(
       { _id: emailId },
       {
         $set: {
           isSnoozed: false,
           folder: 'inbox',
+          labels: updatedLabels, // Remove 'snoozed' label
         },
         $unset: {
           snoozeUntil: '',
@@ -96,7 +114,7 @@ export class SnoozeService {
       },
     );
 
-    this.logger.log(`Email ${emailId} manually unsnoozed`);
+    this.logger.log(`Email ${emailId} manually unsnoozed, removed snoozed label`);
   }
 
   /**

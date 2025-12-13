@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { FilterQuery, Model, UpdateQuery } from 'mongoose';
 import { Email, EmailDocument } from '../schemas/email.schema';
 
 @Injectable()
@@ -24,8 +24,13 @@ export class EmailModel {
     return await this.model.findById(id).exec();
   }
 
-  async updateOne(filter: any, update: any): Promise<void> {
-    await this.model.updateOne(filter, update).exec();
+  async updateOne(
+    filter: FilterQuery<EmailDocument>,
+    update: UpdateQuery<EmailDocument>,
+    options: Record<string, any> = {},
+  ): Promise<{ modifiedCount: number }> {
+    const result = await this.model.updateOne(filter, update, options).exec();
+    return { modifiedCount: result.modifiedCount || 0 };
   }
 
   async deleteOne(filter: any): Promise<void> {
@@ -38,5 +43,17 @@ export class EmailModel {
 
   async countDocuments(filter: any): Promise<number> {
     return await this.model.countDocuments(filter).exec();
+  }
+
+  async findMessageIds(filter: FilterQuery<EmailDocument>): Promise<string[]> {
+    const records = await this.model
+      .find(filter)
+      .select('messageId')
+      .lean()
+      .exec();
+
+    return records
+      .map((record: any) => record.messageId || record._id?.toString())
+      .filter((id: string | undefined): id is string => Boolean(id));
   }
 }

@@ -153,4 +153,20 @@ export class EmailActionsService {
       modified: modifiedCount,
     };
   }
+
+  async updateLabels(
+    userId: string,
+    emailId: string,
+    labels: string[],
+  ): Promise<{ message: string; labels: string[] }> {
+    const provider = await this.providerFactory.getProvider(userId);
+    
+    // Update labels through provider
+    const result = await provider.updateLabels(userId, emailId, labels);
+    
+    return {
+      message: 'Email labels updated successfully',
+      labels: result.labels || labels,
+    };
+  }
 }
