@@ -62,13 +62,19 @@ export class SnoozeController {
   ) {
     let snoozeUntil: Date;
     const now = new Date();
+    const currentHour = now.getHours();
 
     switch (dto.preset) {
       case SnoozePreset.LATER_TODAY:
+        // Smart logic based on current time:
+        // - Before 3 PM (15:00): Snooze to 6 PM today
+        // - After 3 PM: Snooze to 9 AM tomorrow
         snoozeUntil = new Date(now);
-        snoozeUntil.setHours(18, 0, 0, 0); // 6 PM today
-        if (snoozeUntil <= now) {
+        if (currentHour < 15) {
+          snoozeUntil.setHours(18, 0, 0, 0); // 6 PM today
+        } else {
           snoozeUntil.setDate(snoozeUntil.getDate() + 1);
+          snoozeUntil.setHours(9, 0, 0, 0); // 9 AM tomorrow
         }
         break;
 
@@ -80,15 +86,25 @@ export class SnoozeController {
 
       case SnoozePreset.THIS_WEEKEND:
         snoozeUntil = new Date(now);
-        const daysUntilSaturday = (6 - now.getDay() + 7) % 7 || 7;
-        snoozeUntil.setDate(snoozeUntil.getDate() + daysUntilSaturday);
+        const currentDay = now.getDay(); // 0 = Sunday, 6 = Saturday
+        
+        // If it's already weekend (Fri evening, Sat, or Sun), go to next weekend
+        if (currentDay === 6 || currentDay === 0 || (currentDay === 5 && currentHour >= 15)) {
+          // Next Saturday
+          const daysUntilNextSaturday = currentDay === 0 ? 6 : (13 - currentDay);
+          snoozeUntil.setDate(snoozeUntil.getDate() + daysUntilNextSaturday);
+        } else {
+          // This Saturday
+          const daysUntilSaturday = (6 - currentDay + 7) % 7;
+          snoozeUntil.setDate(snoozeUntil.getDate() + daysUntilSaturday);
+        }
         snoozeUntil.setHours(9, 0, 0, 0); // 9 AM Saturday
         break;
 
       case SnoozePreset.NEXT_WEEK:
         snoozeUntil = new Date(now);
-        const daysUntilMonday = (1 - now.getDay() + 7) % 7 || 7;
-        snoozeUntil.setDate(snoozeUntil.getDate() + daysUntilMonday + 7);
+        const daysUntilNextMonday = ((8 - now.getDay()) % 7) || 7;
+        snoozeUntil.setDate(snoozeUntil.getDate() + daysUntilNextMonday);
         snoozeUntil.setHours(9, 0, 0, 0); // 9 AM next Monday
         break;
 

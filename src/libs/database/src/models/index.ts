@@ -5,3 +5,6 @@ export * from './base-model';
 export * from './email.model';
 export * from './email.model.module';
 export * from './attachment';
+export * from './kanban-column/kanban-column.model';
+export * from './kanban-card/kanban-card.model';
+export * from './kanban.model.module';

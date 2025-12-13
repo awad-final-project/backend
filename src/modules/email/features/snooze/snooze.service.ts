@@ -55,6 +55,7 @@ export class SnoozeService {
 
   /**
    * Snooze an email until a specific date/time
+   * Moves email out of inbox (similar to Gmail behavior)
    */
   async snoozeEmail(emailId: string, snoozeUntil: Date): Promise<void> {
     const now = new Date();
@@ -70,12 +71,12 @@ export class SnoozeService {
           isSnoozed: true,
           snoozeUntil,
           snoozedAt: now,
-          folder: 'archive', // Move to archive while snoozed
+          folder: 'snoozed', // Move to snoozed folder (out of inbox)
         },
       },
     );
 
-    this.logger.log(`Email ${emailId} snoozed until ${snoozeUntil.toISOString()}`);
+    this.logger.log(`Email ${emailId} snoozed until ${snoozeUntil.toISOString()}, moved to snoozed folder`);
   }
 
   /**
