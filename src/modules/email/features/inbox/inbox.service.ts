@@ -140,6 +140,13 @@ export class InboxService {
 
     const sortOrder = filters.sort || 'newest';
     filteredEmails.sort((a, b) => {
+      if (sortOrder === 'sender-asc' || sortOrder === 'sender-desc') {
+        const fromA = (a.from || '').toLowerCase();
+        const fromB = (b.from || '').toLowerCase();
+        const cmp = fromA.localeCompare(fromB);
+        return sortOrder === 'sender-asc' ? cmp : -cmp;
+      }
+
       const diff = new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime();
       return sortOrder === 'newest' ? -diff : diff;
     });

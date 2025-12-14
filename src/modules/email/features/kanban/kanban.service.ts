@@ -12,6 +12,7 @@ export interface KanbanBoard {
     description?: string;
     position: number;
     gmailLabel?: string;
+    label?: string;
     color?: string;
     isDefault: boolean;
     cards: Array<{
@@ -35,11 +36,11 @@ export class KanbanService {
   private readonly initializingUsers = new Set<string>();
 
   private readonly DEFAULT_COLUMNS = [
-    { id: 'inbox', title: 'Inbox', description: 'New emails', position: 0, color: '#3b82f6', gmailLabel: 'INBOX', isDefault: true },
-    { id: 'todo', title: 'To Do', description: 'Tasks to do', position: 1, color: '#eab308', gmailLabel: 'TODO', isDefault: false },
-    { id: 'in-progress', title: 'In Progress', description: 'Working on', position: 2, color: '#f97316', gmailLabel: 'IN_PROGRESS', isDefault: false },
-    { id: 'done', title: 'Done', description: 'Completed', position: 3, color: '#22c55e', gmailLabel: 'DONE', isDefault: false },
-    { id: 'snoozed', title: 'Snoozed', description: 'Deferred emails', position: 4, color: '#8b5cf6', gmailLabel: 'SNOOZED', isDefault: false },
+    { id: 'inbox', title: 'Inbox', description: 'New emails', position: 0, color: '#3b82f6', gmailLabel: 'INBOX', label: '', isDefault: true },
+    { id: 'todo', title: 'To Do', description: 'Tasks to do', position: 1, color: '#eab308', gmailLabel: 'TODO', label: 'todo', isDefault: false },
+    { id: 'in-progress', title: 'In Progress', description: 'Working on', position: 2, color: '#f97316', gmailLabel: 'IN_PROGRESS', label: 'in-progress', isDefault: false },
+    { id: 'done', title: 'Done', description: 'Completed', position: 3, color: '#22c55e', gmailLabel: 'DONE', label: 'done', isDefault: false },
+    { id: 'snoozed', title: 'Snoozed', description: 'Deferred emails', position: 4, color: '#8b5cf6', gmailLabel: 'SNOOZED', label: 'snoozed', isDefault: false },
   ];
 
   constructor(
@@ -172,6 +173,7 @@ export class KanbanService {
           description: col.description,
           position: col.position,
           gmailLabel: col.gmailLabel,
+          label: col.label,
           color: col.color,
           isDefault: col.isDefault,
           cards: cardsByColumn[col.id] || [],
@@ -207,6 +209,7 @@ export class KanbanService {
         description: data.description,
         position: data.position ?? 999,
         gmailLabel: data.gmailLabel,
+        label: data.label,
         color: data.color || '#3b82f6',
         isDefault: false,
       });

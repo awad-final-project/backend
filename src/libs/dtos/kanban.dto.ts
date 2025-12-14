@@ -29,6 +29,11 @@ export class CreateColumnDto {
   @IsOptional()
   @IsString()
   color?: string;
+
+  @ApiPropertyOptional({ example: 'todo', description: 'Email label used for label-based Kanban' })
+  @IsOptional()
+  @IsString()
+  label?: string;
 }
 
 export class UpdateColumnDto {
@@ -56,6 +61,11 @@ export class UpdateColumnDto {
   @IsOptional()
   @IsString()
   color?: string;
+
+  @ApiPropertyOptional({ example: 'todo', description: 'Email label used for label-based Kanban' })
+  @IsOptional()
+  @IsString()
+  label?: string;
 }
 
 export class MoveCardDto {

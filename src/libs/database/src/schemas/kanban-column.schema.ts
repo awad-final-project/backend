@@ -23,6 +23,9 @@ export class KanbanColumn {
   @Prop()
   gmailLabel?: string; // Gmail label mapping (e.g., "INBOX", "TODO", "DONE")
 
+  @Prop()
+  label?: string; // Email label used for label-based Kanban (e.g., "todo")
+
   @Prop({ default: '#3b82f6' })
   color?: string;
 

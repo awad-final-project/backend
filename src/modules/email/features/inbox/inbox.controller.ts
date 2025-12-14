@@ -25,7 +25,7 @@ export class InboxController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('hasAttachments') hasAttachments?: string,
-    @Query('sort') sort?: 'newest' | 'oldest',
+    @Query('sort') sort?: 'newest' | 'oldest' | 'sender-asc' | 'sender-desc',
   ) {
     const filters = this.parseFilters({
       search,
@@ -59,7 +59,7 @@ export class InboxController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('hasAttachments') hasAttachments?: string,
-    @Query('sort') sort?: 'newest' | 'oldest',
+    @Query('sort') sort?: 'newest' | 'oldest' | 'sender-asc' | 'sender-desc',
   ) {
     const filters = this.parseFilters({
       search,
@@ -92,9 +92,12 @@ export class InboxController {
     startDate?: string;
     endDate?: string;
     hasAttachments?: string;
-    sort?: 'newest' | 'oldest';
+    sort?: string;
   }): EmailFilters {
-    const normalizedSort = query.sort === 'oldest' ? 'oldest' : query.sort === 'newest' ? 'newest' : undefined;
+    const allowedSorts: EmailFilters['sort'][] = ['newest', 'oldest', 'sender-asc', 'sender-desc'];
+    const normalizedSort = allowedSorts.includes(query.sort as EmailFilters['sort'])
+      ? (query.sort as EmailFilters['sort'])
+      : undefined;
 
     return {
       search: query.search,
