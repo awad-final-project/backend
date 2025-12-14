@@ -15,6 +15,7 @@ import { NotificationsModule } from '@email/features/notifications/notifications
 import { SnoozeModule } from '@email/features/snooze/snooze.module';
 import { AiModule } from '@email/features/ai/ai.module';
 import { KanbanModule } from '@email/features/kanban/kanban.module';
+import { SearchModule } from '@email/features/search/search.module';
 
 /**
  * Email Module
@@ -37,6 +38,7 @@ import { KanbanModule } from '@email/features/kanban/kanban.module';
     SnoozeModule,
     AiModule,
     KanbanModule,
+    SearchModule,
   ],
   exports: [
     EmailProvidersModule,
@@ -51,6 +53,7 @@ import { KanbanModule } from '@email/features/kanban/kanban.module';
     SnoozeModule,
     AiModule,
     KanbanModule,
+    SearchModule,
   ],
 })
 export class EmailModule {}

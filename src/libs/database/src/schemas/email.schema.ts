@@ -128,6 +128,12 @@ export class Email extends Document implements IEmail {
 
   @Prop()
   summarizedAt?: Date;
+
+  @Prop({ type: [Number], default: [] })
+  subjectEmbedding?: number[];
+
+  @Prop({ type: [Number], default: [] })
+  bodyEmbedding?: number[];
 }
 
 export const EmailSchema = SchemaFactory.createForClass(Email);
