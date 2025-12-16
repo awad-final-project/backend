@@ -37,12 +37,9 @@ WORKDIR /app
 # Set production environment
 ENV NODE_ENV=production
 
-# Copy dependencies and rebuild native modules for Alpine
+# Copy package files and install production dependencies fresh
 COPY package.json pnpm-lock.yaml* ./
-COPY --from=prod-deps /app/node_modules /app/node_modules
-
-# Rebuild native modules (bcrypt) for the final Alpine environment
-RUN pnpm rebuild bcrypt
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile
 
 # Copy built application
 COPY --from=build /app/dist /app/dist
