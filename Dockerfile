@@ -4,9 +4,6 @@ ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
 
-# Install build dependencies for native modules (bcrypt, etc.)
-RUN apk add --no-cache python3 make g++ libc6-compat
-
 WORKDIR /app
 
 # Copy package files first
@@ -25,9 +22,6 @@ RUN pnpm run build
 # Final stage
 FROM node:20-alpine AS final
 
-# Install runtime dependencies
-RUN apk add --no-cache python3 make g++ libc6-compat
-
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
@@ -36,14 +30,10 @@ WORKDIR /app
 
 # Set production environment
 ENV NODE_ENV=production
-ENV npm_config_build_from_source=true
 
 # Copy package files and install production dependencies fresh
 COPY package.json pnpm-lock.yaml* ./
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile
-
-# Rebuild native modules for the target platform from source to ensure musl-compatible binaries
-RUN pnpm rebuild bcrypt
 
 # Copy built application
 COPY --from=build /app/dist /app/dist
