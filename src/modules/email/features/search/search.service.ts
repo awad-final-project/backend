@@ -5,12 +5,19 @@ import { Model } from 'mongoose';
 import { EmailModel } from '@database/models';
 import { Email, EmailDocument } from '@database/schemas/email.schema';
 import Fuse from 'fuse.js';
-import { distance } from 'fast-levenshtein';
+import * as levenshtein from 'fast-levenshtein';
 
 export interface SearchResult {
   email: EmailDocument;
   relevanceScore: number;
   matchType: 'exact' | 'fuzzy' | 'semantic' | 'partial';
+}
+
+export interface SearchMetadata {
+  semanticSearchUsed: boolean;
+  semanticSearchError: boolean;
+  hasApiKey: boolean;
+  totalResults: number;
 }
 
 export interface SearchOptions {
@@ -74,13 +81,29 @@ export class SearchService {
       results.push(...fuzzyMatches);
 
       // 3. Semantic matches (if embeddings are available)
+      let semanticSearchUsed = false;
+      let semanticSearchError = false;
       if (includeSemantic && this.apiKey) {
-        const semanticMatches = await this.findSemanticMatches(emails, query);
-        results.push(...semanticMatches);
+        try {
+          const semanticMatches = await this.findSemanticMatches(emails, query);
+          results.push(...semanticMatches);
+          semanticSearchUsed = semanticMatches.length > 0;
+        } catch (error) {
+          this.logger.warn('Semantic search failed, continuing with fuzzy/exact only:', error.message);
+          semanticSearchError = true;
+        }
       }
 
       // Remove duplicates and sort by relevance
       const uniqueResults = this.deduplicateAndRank(results, limit);
+
+      // Attach metadata to results
+      (uniqueResults as any).metadata = {
+        semanticSearchUsed,
+        semanticSearchError,
+        hasApiKey: !!this.apiKey,
+        totalResults: uniqueResults.length,
+      };
 
       return uniqueResults;
     } catch (error) {
@@ -170,7 +193,7 @@ export class SearchService {
       const subjectLower = email.subject.toLowerCase();
 
       // Check if query is similar to contact name/email
-      const fromDistance = distance(queryLower, fromLower);
+      const fromDistance = levenshtein.get(queryLower, fromLower);
       const maxLength = Math.max(queryLower.length, fromLower.length);
       const similarity = 1 - fromDistance / maxLength;
 
@@ -187,7 +210,7 @@ export class SearchService {
       }
 
       // Check subject fuzzy match
-      const subjectDistance = distance(queryLower, subjectLower);
+      const subjectDistance = levenshtein.get(queryLower, subjectLower);
       const subjectMaxLength = Math.max(queryLower.length, subjectLower.length);
       const subjectSimilarity = 1 - subjectDistance / subjectMaxLength;
 
@@ -293,18 +316,19 @@ export class SearchService {
     }
 
     try {
+      // Use Gemini Embedding API - following official format
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent`,
+        `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-goog-api-key': this.apiKey,
+            'x-goog-api-key': this.apiKey,
           },
           body: JSON.stringify({
-            model: 'models/embedding-001',
+            model: 'models/text-embedding-004',
             content: {
-              parts: [{ text: text.substring(0, 1000) }], // Limit text length
+              parts: [{ text: text.substring(0, 1000) }],
             },
           }),
         },
@@ -478,7 +502,7 @@ export class SearchService {
     }
 
     // Fuzzy match
-    const contactDistance = distance(queryLower, contactLower);
+    const contactDistance = levenshtein.get(queryLower, contactLower);
     const maxLength = Math.max(queryLower.length, contactLower.length);
     const similarity = 1 - contactDistance / maxLength;
 

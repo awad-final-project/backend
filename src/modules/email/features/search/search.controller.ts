@@ -1,11 +1,11 @@
-import { Controller, Get, Query, UseGuards, Post, Param } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards, Post, Param, HttpException, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@app/libs/guards/jwt-auth.guard';
 import { CurrentUser } from '@app/libs/decorators';
 import { SearchService } from './search.service';
 
 @ApiTags('Email - Search')
-@Controller('emails/search')
+@Controller('search')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class SearchController {
@@ -32,6 +32,13 @@ export class SearchController {
       includeSemantic: semantic !== 'false',
     });
 
+    const metadata = (results as any).metadata || {
+      semanticSearchUsed: false,
+      semanticSearchError: false,
+      hasApiKey: false,
+      totalResults: results.length,
+    };
+
     return {
       results: results.map((r) => ({
         email: {
@@ -55,6 +62,7 @@ export class SearchController {
       })),
       total: results.length,
       query,
+      metadata,
     };
   }
 

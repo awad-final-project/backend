@@ -36,14 +36,14 @@ ${emailContent.body.substring(0, 3000)}
 
 Tóm tắt:`;
 
-      // Use REST API directly instead of SDK
+      // Use Gemini REST API - following official quickstart format
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-goog-api-key': this.apiKey,
+            'x-goog-api-key': this.apiKey,
           },
           body: JSON.stringify({
             contents: [
@@ -99,14 +99,14 @@ ${emailContent.body.substring(0, 2000)}
 
 Bản nháp trả lời:`;
 
-      // Use REST API directly instead of SDK
+      // Use Gemini REST API - following official quickstart format
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-goog-api-key': this.apiKey,
+            'x-goog-api-key': this.apiKey,
           },
           body: JSON.stringify({
             contents: [

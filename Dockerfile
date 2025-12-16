@@ -41,6 +41,9 @@ ENV NODE_ENV=production
 COPY package.json pnpm-lock.yaml* ./
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile
 
+# Rebuild native modules for the target platform
+RUN pnpm rebuild bcrypt
+
 # Copy built application
 COPY --from=build /app/dist /app/dist
 
