@@ -36,13 +36,13 @@ WORKDIR /app
 
 # Set production environment
 ENV NODE_ENV=production
+ENV npm_config_build_from_source=true
 
 # Copy package files and install production dependencies fresh
 COPY package.json pnpm-lock.yaml* ./
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile
 
 # Rebuild native modules for the target platform from source to ensure musl-compatible binaries
-ENV npm_config_build_from_source=true
 RUN pnpm rebuild bcrypt
 
 # Copy built application
