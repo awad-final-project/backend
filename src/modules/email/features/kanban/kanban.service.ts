@@ -199,11 +199,12 @@ export class KanbanService {
       // Check if column ID already exists
       const existing = await this.columnModel.findByAccountAndColumnId(userId, data.id);
       if (existing) {
+        this.logger.warn(`Column ${data.id} already exists for user ${userId}`);
         throw new HttpException('Column ID already exists', HttpStatus.CONFLICT);
       }
 
-      const column = await this.columnModel.save({
-        accountId: userId as any,
+      const columnData = {
+        accountId: new Types.ObjectId(userId),
         id: data.id,
         title: data.title,
         description: data.description,
@@ -212,7 +213,9 @@ export class KanbanService {
         label: data.label,
         color: data.color || '#3b82f6',
         isDefault: false,
-      });
+      };
+      
+      const column = await this.columnModel.save(columnData);
 
       this.logger.log(`Created column ${data.id} for user ${userId}`);
 
@@ -222,6 +225,7 @@ export class KanbanService {
         description: column.description,
         position: column.position,
         gmailLabel: column.gmailLabel,
+        label: column.label,
         color: column.color,
         isDefault: column.isDefault,
       };
@@ -254,6 +258,7 @@ export class KanbanService {
         description: column.description,
         position: column.position,
         gmailLabel: column.gmailLabel,
+        label: column.label,
         color: column.color,
         isDefault: column.isDefault,
       };
