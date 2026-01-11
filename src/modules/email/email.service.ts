@@ -6,7 +6,7 @@ import { faker } from '@faker-js/faker';
 import { google } from 'googleapis';
 import { ConfigService } from '@nestjs/config';
 import { isValidObjectId } from 'mongoose';
-import { MailService } from '../mailer';
+import { MailService, DynamicMailService } from '../mailer';
 import { AttachmentService } from './attachment.service';
 import { IAttachmentRef } from '../../libs/database/src/schemas/email.schema';
 
@@ -20,6 +20,7 @@ export class EmailService {
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
     private readonly attachmentService: AttachmentService,
+    private readonly dynamicMailService: DynamicMailService,
   ) {}
 
   private async getGmailClient(userId: string) {
