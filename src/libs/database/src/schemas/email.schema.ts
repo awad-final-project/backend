@@ -81,6 +81,9 @@ export class Email extends Document implements IEmail {
   @Prop({ required: true, type: MongooseSchema.Types.ObjectId, ref: 'Account' })
   accountId: string;
 
+  @Prop({ unique: false, sparse: true })
+  gmailMessageId?: string;
+
   @Prop({ type: [String], default: [] })
   cc?: string[];
 

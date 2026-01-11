@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EmailModel } from '@database/models';
+import { IEmailDetail } from '@email/common/interfaces';
 
 @Injectable()
 export class SnoozeService {
@@ -55,58 +56,100 @@ export class SnoozeService {
 
   /**
    * Snooze an email until a specific date/time
-   * Moves email out of inbox (similar to Gmail behavior)
+   * Supports both Gmail and local database emails
+   * For Gmail: Creates/updates DB record to store snooze state
    */
-  async snoozeEmail(emailId: string, snoozeUntil: Date): Promise<void> {
+  async snoozeEmail(
+    userId: string,
+    emailId: string,
+    emailDetail: IEmailDetail,
+    snoozeUntil: Date,
+  ): Promise<void> {
     const now = new Date();
     
     if (snoozeUntil <= now) {
       throw new Error('Snooze time must be in the future');
     }
 
-    // Get current email to preserve existing labels
-    const email = await this.emailModel.findById(emailId);
+    // Try to find existing email in DB (for both local and Gmail emails)
+    let email = await this.emailModel.findOne({
+      $or: [
+        { _id: emailId }, // Local mail: MongoDB ObjectID
+        { gmailMessageId: emailId }, // Gmail: Gmail message ID
+      ],
+      accountId: userId,
+    });
+
     const currentLabels = email?.labels || [];
-    
-    // Add 'snoozed' label if not already present
     const updatedLabels = currentLabels.includes('snoozed') 
       ? currentLabels 
       : [...currentLabels, 'snoozed'];
 
-    await this.emailModel.updateOne(
-      { _id: emailId },
-      {
-        $set: {
-          isSnoozed: true,
-          snoozeUntil,
-          snoozedAt: now,
-          folder: 'snoozed', // Move to snoozed folder (out of inbox)
-          labels: updatedLabels, // Add 'snoozed' label for Kanban
+    if (email) {
+      // Update existing email
+      await this.emailModel.updateOne(
+        { _id: email._id },
+        {
+          $set: {
+            isSnoozed: true,
+            snoozeUntil,
+            snoozedAt: now,
+            folder: 'snoozed',
+            labels: updatedLabels,
+          },
         },
-      },
-    );
+      );
+    } else {
+      // Create new record for Gmail email
+      await this.emailModel.save({
+        gmailMessageId: emailId,
+        accountId: userId,
+        subject: emailDetail.subject,
+        from: emailDetail.from,
+        to: emailDetail.to,
+        body: emailDetail.body,
+        sentAt: emailDetail.sentAt,
+        isRead: emailDetail.isRead,
+        isStarred: emailDetail.isStarred,
+        isSnoozed: true,
+        snoozeUntil,
+        snoozedAt: now,
+        folder: 'snoozed',
+        labels: updatedLabels,
+      });
+    }
 
-    this.logger.log(`Email ${emailId} snoozed until ${snoozeUntil.toISOString()}, moved to snoozed folder with label`);
+    this.logger.log(`Email ${emailId} snoozed until ${snoozeUntil.toISOString()}`);
   }
 
   /**
    * Manually unsnooze an email
    */
-  async unsnoozeEmail(emailId: string): Promise<void> {
-    // Get current email to update labels
-    const email = await this.emailModel.findById(emailId);
-    const currentLabels = email?.labels || [];
-    
-    // Remove 'snoozed' label
+  async unsnoozeEmail(userId: string, emailId: string): Promise<void> {
+    // Find email by either MongoDB ID or Gmail message ID
+    const email = await this.emailModel.findOne({
+      $or: [
+        { _id: emailId },
+        { gmailMessageId: emailId },
+      ],
+      accountId: userId,
+    });
+
+    if (!email) {
+      this.logger.warn(`Email ${emailId} not found for unsnooze`);
+      return;
+    }
+
+    const currentLabels = email.labels || [];
     const updatedLabels = currentLabels.filter(label => label !== 'snoozed');
 
     await this.emailModel.updateOne(
-      { _id: emailId },
+      { _id: email._id },
       {
         $set: {
           isSnoozed: false,
           folder: 'inbox',
-          labels: updatedLabels, // Remove 'snoozed' label
+          labels: updatedLabels,
         },
         $unset: {
           snoozeUntil: '',
@@ -114,7 +157,7 @@ export class SnoozeService {
       },
     );
 
-    this.logger.log(`Email ${emailId} manually unsnoozed, removed snoozed label`);
+    this.logger.log(`Email ${emailId} manually unsnoozed`);
   }
 
   /**

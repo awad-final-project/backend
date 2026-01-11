@@ -114,7 +114,7 @@ export class SearchController {
     @CurrentUser() user: { userId: string },
     @Param('emailId') emailId: string,
   ) {
-    await this.searchService.generateEmailEmbeddings(emailId);
+    await this.searchService.generateEmailEmbeddings(user.userId, emailId);
     return { message: 'Embeddings generated successfully' };
   }
 }

@@ -6,6 +6,7 @@ import { EmailModel } from '@database/models';
 import { Email, EmailDocument } from '@database/schemas/email.schema';
 import Fuse from 'fuse.js';
 import * as levenshtein from 'fast-levenshtein';
+import { EmailProviderFactory } from '@email/providers/email-provider.factory';
 
 export interface SearchResult {
   email: EmailDocument;
@@ -37,6 +38,7 @@ export class SearchService {
     private readonly configService: ConfigService,
     private readonly emailModel: EmailModel,
     @InjectModel(Email.name) private readonly emailMongooseModel: Model<EmailDocument>,
+    private readonly providerFactory: EmailProviderFactory,
   ) {
     this.apiKey = this.configService.get<string>('GEMINI_API_KEY');
   }
@@ -350,11 +352,41 @@ export class SearchService {
 
   /**
    * Generate and store embeddings for an email
+   * Supports both Gmail and local database emails
    */
-  async generateEmailEmbeddings(emailId: string): Promise<void> {
-    const email = await this.emailModel.findById(emailId);
-    if (!email) {
+  async generateEmailEmbeddings(userId: string, emailId: string): Promise<void> {
+    // Try to get email from provider first
+    const provider = await this.providerFactory.getProvider(userId);
+    const emailDetail = await provider.getEmailById(userId, emailId);
+    
+    if (!emailDetail) {
+      this.logger.warn(`Email ${emailId} not found for generating embeddings`);
       return;
+    }
+
+    // Find or create DB record
+    let email = await this.emailModel.findOne({
+      $or: [
+        { _id: emailId },
+        { gmailMessageId: emailId },
+      ],
+      accountId: userId,
+    });
+
+    if (!email) {
+      // Create new record for Gmail email
+      email = await this.emailModel.save({
+        gmailMessageId: emailId,
+        accountId: userId,
+        subject: emailDetail.subject,
+        from: emailDetail.from,
+        to: emailDetail.to,
+        body: emailDetail.body,
+        sentAt: emailDetail.sentAt,
+        folder: emailDetail.folder || 'inbox',
+        isRead: emailDetail.isRead,
+        isStarred: emailDetail.isStarred,
+      });
     }
 
     try {
@@ -375,7 +407,8 @@ export class SearchService {
         }
       }
 
-      await email.save();
+      await this.emailModel.save(email);
+      this.logger.log(`Generated embeddings for email ${emailId}`);
     } catch (error) {
       this.logger.error(`Error generating embeddings for email ${emailId}:`, error);
     }

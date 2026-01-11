@@ -5,6 +5,7 @@ import { CurrentUser } from '@app/libs/decorators';
 import { SnoozeService } from './snooze.service';
 import { SnoozeEmailDto, SnoozeEmailPresetDto, SnoozePreset } from '@app/libs/dtos';
 import { EmailModel } from '@database/models';
+import { EmailProviderFactory } from '@email/providers/email-provider.factory';
 
 @ApiTags('Email - Snooze')
 @ApiBearerAuth()
@@ -14,6 +15,7 @@ export class SnoozeController {
   constructor(
     private readonly snoozeService: SnoozeService,
     private readonly emailModel: EmailModel,
+    private readonly providerFactory: EmailProviderFactory,
   ) {}
 
   @Post(':emailId')
@@ -35,15 +37,15 @@ export class SnoozeController {
       throw new HttpException('Snooze time must be in the future', HttpStatus.BAD_REQUEST);
     }
 
-    const email = await this.emailModel.findById(emailId);
+    // Use provider to get email (supports both Gmail and Database)
+    const provider = await this.providerFactory.getProvider(user.userId);
+    const email = await provider.getEmailById(user.userId, emailId);
+    
     if (!email) {
       throw new HttpException('Email not found', HttpStatus.NOT_FOUND);
     }
-    if (email.accountId.toString() !== user.userId) {
-      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
-    }
 
-    await this.snoozeService.snoozeEmail(emailId, snoozeUntil);
+    await this.snoozeService.snoozeEmail(user.userId, emailId, email, snoozeUntil);
 
     return { 
       message: 'Email snoozed successfully',
@@ -129,15 +131,15 @@ export class SnoozeController {
       throw new HttpException('Snooze time must be in the future', HttpStatus.BAD_REQUEST);
     }
 
-    const email = await this.emailModel.findById(emailId);
+    // Use provider to get email (supports both Gmail and Database)
+    const provider = await this.providerFactory.getProvider(user.userId);
+    const email = await provider.getEmailById(user.userId, emailId);
+    
     if (!email) {
       throw new HttpException('Email not found', HttpStatus.NOT_FOUND);
     }
-    if (email.accountId.toString() !== user.userId) {
-      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
-    }
 
-    await this.snoozeService.snoozeEmail(emailId, snoozeUntil);
+    await this.snoozeService.snoozeEmail(user.userId, emailId, email, snoozeUntil);
 
     return { 
       message: 'Email snoozed successfully',
@@ -153,15 +155,15 @@ export class SnoozeController {
     @CurrentUser() user: { userId: string },
     @Param('emailId') emailId: string,
   ) {
-    const email = await this.emailModel.findById(emailId);
+    // Use provider to verify email exists
+    const provider = await this.providerFactory.getProvider(user.userId);
+    const email = await provider.getEmailById(user.userId, emailId);
+    
     if (!email) {
       throw new HttpException('Email not found', HttpStatus.NOT_FOUND);
     }
-    if (email.accountId.toString() !== user.userId) {
-      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
-    }
 
-    await this.snoozeService.unsnoozeEmail(emailId);
+    await this.snoozeService.unsnoozeEmail(user.userId, emailId);
     return { message: 'Email unsnoozed successfully' };
   }
 
