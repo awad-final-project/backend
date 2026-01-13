@@ -8,6 +8,6 @@ import { EmailModel } from './email.model';
     MongooseModule.forFeature([{ name: Email.name, schema: EmailSchema }]),
   ],
   providers: [EmailModel],
-  exports: [EmailModel],
+  exports: [EmailModel, MongooseModule],
 })
 export class EmailModelModule {}

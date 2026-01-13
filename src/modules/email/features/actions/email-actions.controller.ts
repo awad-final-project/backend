@@ -5,6 +5,7 @@ import {
   Param,
   Body,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -85,5 +86,15 @@ export class EmailActionsController {
     @Body('isRead') isRead: boolean,
   ) {
     return this.emailActionsService.bulkMarkAsRead(user.userId, emailIds, isRead);
+  }
+
+  @Put(':id/labels')
+  @ApiOperation({ summary: 'Update email labels for Kanban' })
+  async updateLabels(
+    @CurrentUser() user: { userId: string },
+    @Param('id') id: string,
+    @Body('labels') labels: string[],
+  ) {
+    return this.emailActionsService.updateLabels(user.userId, id, labels);
   }
 }

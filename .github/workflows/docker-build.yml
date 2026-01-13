@@ -71,10 +71,14 @@ jobs:
           token: ${{ secrets.PAT_TOKEN }}
           repository: awad-final-project/devops
           event-type: deploy-dev
-          client-payload: '{"app_name": "dev", "branch_backend": "${{ github.ref_name }}", "branch_frontend": "${{ github.ref_name }}", "domain_name": "mail-dev.nguyenanhhao.site"}'
+          client-payload: '{"branch_backend": "${{ github.ref_name }}", "branch_frontend": "${{ github.ref_name }}"}'
 
-      - name: Trigger deployment
+      - name: Production deployment note
         if: github.ref == 'refs/heads/main'
         run: |
-          echo "Image pushed successfully!"
-          echo "To deploy, run: ansible-playbook -i inventory.ini playbook.yml --tags deploy"
+          echo "✅ Backend image pushed successfully!"
+          echo "📦 Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main"
+          echo ""
+          echo "⚠️ Production deployment is MANUAL."
+          echo "Go to: https://github.com/awad-final-project/devops/actions/workflows/deploy-prod.yml"
+          echo "Click 'Run workflow' to deploy to production."

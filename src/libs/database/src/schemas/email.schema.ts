@@ -30,6 +30,13 @@ type IEmail = {
   inReplyTo?: string;
   attachments?: IAttachmentRef[];
   hasAttachments?: boolean;
+  labels?: string[];
+  priority?: 'high' | 'normal' | 'low';
+  isSnoozed?: boolean;
+  snoozeUntil?: Date;
+  snoozedAt?: Date;
+  aiSummary?: string;
+  summarizedAt?: Date;
 };
 
 @Schema({
@@ -74,6 +81,9 @@ export class Email extends Document implements IEmail {
   @Prop({ required: true, type: MongooseSchema.Types.ObjectId, ref: 'Account' })
   accountId: string;
 
+  @Prop({ unique: false, sparse: true })
+  gmailMessageId?: string;
+
   @Prop({ type: [String], default: [] })
   cc?: string[];
 
@@ -100,6 +110,33 @@ export class Email extends Document implements IEmail {
 
   @Prop({ default: false })
   hasAttachments?: boolean;
+
+  @Prop({ type: [String], default: [] })
+  labels?: string[];
+
+  @Prop({ type: String, enum: ['high', 'normal', 'low'], default: 'normal' })
+  priority?: 'high' | 'normal' | 'low';
+
+  @Prop({ default: false })
+  isSnoozed?: boolean;
+
+  @Prop()
+  snoozeUntil?: Date;
+
+  @Prop()
+  snoozedAt?: Date;
+
+  @Prop({ type: String })
+  aiSummary?: string;
+
+  @Prop()
+  summarizedAt?: Date;
+
+  @Prop({ type: [Number], default: [] })
+  subjectEmbedding?: number[];
+
+  @Prop({ type: [Number], default: [] })
+  bodyEmbedding?: number[];
 }
 
 export const EmailSchema = SchemaFactory.createForClass(Email);

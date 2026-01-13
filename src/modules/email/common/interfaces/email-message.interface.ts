@@ -19,6 +19,8 @@ export interface IEmailPreview extends IEmailMessage {
   isStarred: boolean;
   folder: string;
   hasAttachments?: boolean;
+  labels?: string[];
+  priority?: 'high' | 'normal' | 'low';
 }
 
 /**

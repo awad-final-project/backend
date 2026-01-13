@@ -133,15 +133,19 @@ export class AttachmentController {
     return { message: 'Attachment deleted successfully' };
   }
 
-  @Get('gmail/:emailId/:attachmentId/download')
-  @ApiOperation({ summary: 'Download Gmail attachment' })
-  async downloadGmailAttachment(
+  @Get(':attachmentId/download')
+  @ApiOperation({ summary: 'Download attachment (unified for both database and email provider attachments)' })
+  async downloadUnifiedAttachment(
     @CurrentUser() user: { userId: string },
-    @Param('emailId') emailId: string,
     @Param('attachmentId') attachmentId: string,
+    @Query('emailId') emailId: string,
     @Res() res: Response,
   ) {
-    const result = await this.attachmentService.downloadGmailAttachment(user.userId, emailId, attachmentId);
+    // If emailId is provided, try to download from email provider (e.g., Gmail)
+    // Otherwise, download from database/S3
+    const result = emailId 
+      ? await this.attachmentService.downloadProviderAttachment(user.userId, emailId, attachmentId)
+      : await this.attachmentService.downloadAttachment(attachmentId);
 
     res.setHeader('Content-Type', result.mimeType);
     res.setHeader(
@@ -150,6 +154,14 @@ export class AttachmentController {
     );
     res.setHeader('Content-Length', result.size);
 
-    res.send(result.buffer);
+    if (result.buffer) {
+      // Send buffer for database-stored or provider-based files
+      res.send(result.buffer);
+    } else if (result.stream) {
+      // Pipe stream for S3-stored files
+      result.stream.pipe(res);
+    } else {
+      res.status(404).send('File not found');
+    }
   }
 }

@@ -7,6 +7,7 @@ import {
   IEmailPreview,
   IMailbox,
 } from '@email/common/interfaces';
+import { EmailFilterOptions } from '@email/common/interfaces';
 import { isValidObjectId } from 'mongoose';
 import { generatePreview } from '@email/common/utils/email.utils';
 
@@ -93,6 +94,7 @@ export class DatabaseProviderService implements IEmailProvider {
 
       if (folder === 'starred') {
         filter.isStarred = true;
+        filter.folder = { $ne: 'trash' };
       } else {
         filter.folder = folder;
       }
@@ -117,6 +119,9 @@ export class DatabaseProviderService implements IEmailProvider {
         sentAt: email.sentAt,
         folder: email.folder,
         hasAttachments: email.attachments && email.attachments.length > 0,
+        labels: email.labels || [], // Include labels for Kanban functionality
+        isSnoozed: email.isSnoozed || false, // Include snooze status
+        snoozeUntil: email.snoozeUntil, // Include snooze timestamp
       }));
 
       return {
@@ -170,6 +175,7 @@ export class DatabaseProviderService implements IEmailProvider {
         sentAt: email.sentAt,
         readAt: email.readAt || new Date(),
         folder: email.folder,
+        labels: email.labels || [], // Include labels for Kanban functionality
         attachments: email.attachments?.map((att: any) => ({
           id: att._id?.toString() || att.id,
           attachmentId: att.attachmentId || att._id?.toString(),
@@ -280,7 +286,7 @@ export class DatabaseProviderService implements IEmailProvider {
         // Move to trash
         await this.emailModel.updateOne(
           { _id: emailId },
-          { folder: 'trash' },
+          { folder: 'trash', isStarred: false },
         );
       }
 
@@ -307,5 +313,89 @@ export class DatabaseProviderService implements IEmailProvider {
       this.logger.error(`Failed to move email to folder: ${error.message}`);
       return false;
     }
+  }
+
+  async addLabel(_userId: string, _emailId: string, _label: string): Promise<boolean> {
+    // Label operations are Gmail-specific; noop for database provider
+    return false;
+  }
+
+  async removeLabel(_userId: string, _emailId: string, _label: string): Promise<boolean> {
+    return false;
+  }
+
+  async updateLabels(userId: string, emailId: string, labels: string[]): Promise<{ labels: string[] }> {
+    // Update labels in database
+    const objectId = isValidObjectId(emailId) ? emailId : null;
+    
+    if (!objectId) {
+      this.logger.warn(`Invalid email ID for label update: ${emailId}`);
+      return { labels: [] };
+    }
+
+    try {
+      const result = await this.emailModel.updateOne(
+        { _id: objectId, accountId: userId },
+        { $set: { labels } },
+      );
+
+      if (result.modifiedCount > 0) {
+        this.logger.log(`Updated labels for email ${emailId}`);
+        return { labels };
+      }
+
+      return { labels: [] };
+    } catch (error) {
+      this.logger.error(`Failed to update labels for email ${emailId}:`, error);
+      return { labels: [] };
+    }
+  }
+
+  async getEmailIdsForFolder(
+    userId: string,
+    folder: string,
+    filters?: EmailFilterOptions,
+  ): Promise<string[]> {
+    const query: any = { accountId: userId };
+
+    if (folder === 'starred') {
+      query.isStarred = true;
+      query.folder = { $ne: 'trash' };
+    } else if (folder && folder !== 'all') {
+      query.folder = folder;
+    }
+
+    if (filters?.from) {
+      query.from = { $regex: filters.from, $options: 'i' };
+    }
+
+    if (filters?.unread) {
+      query.isRead = false;
+    }
+
+    if (filters?.starred) {
+      query.isStarred = true;
+    }
+
+    if (filters?.hasAttachments) {
+      query.hasAttachments = true;
+    }
+
+    if (filters?.startDate || filters?.endDate) {
+      query.sentAt = {};
+      if (filters.startDate) {
+        query.sentAt.$gte = filters.startDate;
+      }
+      if (filters.endDate) {
+        query.sentAt.$lte = filters.endDate;
+      }
+    }
+
+    if (filters?.search) {
+      const regex = new RegExp(filters.search, 'i');
+      query.$or = [{ subject: regex }, { from: regex }, { preview: regex }];
+    }
+
+    return this.emailModel.findMessageIds(query);
   }
 }

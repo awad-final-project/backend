@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-import * as cookieParser from 'cookie-parser';
+import cookieParser from 'cookie-parser';
 
 import { ThrowFirstErrorValidationPipe } from './libs/utils/pipes';
 import { AppModule } from './modules/app/app.module';
@@ -40,9 +40,9 @@ async function createApp() {
 async function bootstrap() {
   const app = await createApp();
   const port = process.env.PORT || 3000;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   Logger.log(
-    `🚀 Main application is running on: http://localhost:${port}/`,
+    `🚀 Main application is running on: http://0.0.0.0:${port}/`,
   );
 }
 

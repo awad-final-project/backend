@@ -3,3 +3,5 @@ export * from './sign-up.dto';
 export * from './send-email.dto';
 export * from './reply-email.dto';
 export * from './modify-email.dto';
+export * from './snooze-email.dto';
+export * from './kanban.dto';

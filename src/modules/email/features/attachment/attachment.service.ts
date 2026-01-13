@@ -357,12 +357,30 @@ export class AttachmentService {
 
   /**
    * Download Gmail attachment
+   * @deprecated Use downloadProviderAttachment instead for unified interface
    */
   async downloadGmailAttachment(userId: string, emailId: string, attachmentId: string): Promise<{
-    buffer: Buffer;
+    buffer?: Buffer;
+    stream?: any;
     filename: string;
     mimeType: string;
     size: number;
+    storageType?: string;
+  }> {
+    return this.downloadProviderAttachment(userId, emailId, attachmentId);
+  }
+
+  /**
+   * Download attachment from email provider (Gmail, IMAP, etc.)
+   * Unified method that works with any email provider
+   */
+  async downloadProviderAttachment(userId: string, emailId: string, attachmentId: string): Promise<{
+    buffer?: Buffer;
+    stream?: any;
+    filename: string;
+    mimeType: string;
+    size: number;
+    storageType?: string;
   }> {
     try {
       const provider = await this.providerFactory.getProvider(userId);
@@ -370,20 +388,23 @@ export class AttachmentService {
       // Check if provider is Gmail
       if (!(provider instanceof GmailProviderService)) {
         throw new HttpException(
-          'Gmail attachment download is only available for Gmail accounts',
-          HttpStatus.BAD_REQUEST,
+          'Provider attachment download is only available for Gmail accounts. Local email attachments coming soon.',
+          HttpStatus.NOT_IMPLEMENTED,
         );
       }
 
-      // Get attachment data from Gmail
+      // Get attachment data from provider
       const attachmentData = await (provider as any).downloadAttachment(userId, emailId, attachmentId);
       
-      return attachmentData;
+      return {
+        ...attachmentData,
+        storageType: 'PROVIDER',
+      };
     } catch (error) {
-      this.logger.error(`Failed to download Gmail attachment: ${error.message}`, error.stack);
+      this.logger.error(`Failed to download provider attachment: ${error.message}`, error.stack);
       throw new HttpException(
-        `Failed to download Gmail attachment: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to download attachment: ${error.message}`,
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }

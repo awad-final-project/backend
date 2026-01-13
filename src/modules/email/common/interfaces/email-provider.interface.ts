@@ -1,4 +1,5 @@
 import { IEmailDetail, IEmailListResponse, IEmailPreview, IMailbox } from './email-message.interface';
+import { EmailFilterOptions } from './email-filters.interface';
 
 /**
  * Email Provider Interface
@@ -74,6 +75,30 @@ export interface IEmailProvider {
    * Move email to folder
    */
   moveToFolder(userId: string, emailId: string, folder: string): Promise<boolean>;
+
+  /**
+   * Add a Gmail label to an email (optional capability per provider)
+   */
+  addLabel?(userId: string, emailId: string, label: string): Promise<boolean>;
+
+  /**
+   * Remove a Gmail label from an email (optional capability per provider)
+   */
+  removeLabel?(userId: string, emailId: string, label: string): Promise<boolean>;
+
+  /**
+   * Update email labels (for Kanban board)
+   */
+  updateLabels?(userId: string, emailId: string, labels: string[]): Promise<{ labels: string[] }>;
+
+  /**
+   * Return all email IDs that match the current folder/filter (used for bulk selection)
+   */
+  getEmailIdsForFolder?(
+    userId: string,
+    folder: string,
+    filters?: EmailFilterOptions,
+  ): Promise<string[]>;
 }
 
 /**

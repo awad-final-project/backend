@@ -1,7 +1,7 @@
 import { AccessTokenModel, AccountModel, RefreshTokenModel } from '../../libs/database/src/models';
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { SignUpDto } from '../../libs/dtos';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
 import { randomBytes } from 'crypto';
 
