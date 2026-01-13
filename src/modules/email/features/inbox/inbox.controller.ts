@@ -2,7 +2,6 @@ import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@app/libs/guards/jwt-auth.guard';
 import { CurrentUser } from '@app/libs/decorators';
-import { ParseObjectIdPipe } from '@app/libs/utils';
 import { EmailFilters, InboxService } from './inbox.service';
 
 @ApiTags('Inbox')
@@ -80,7 +79,7 @@ export class InboxController {
   @ApiOperation({ summary: 'Get email by ID with full details' })
   async getEmailById(
     @CurrentUser() user: { userId: string },
-    @Param('id', ParseObjectIdPipe) id: string,
+    @Param('id') id: string,
   ) {
     return this.inboxService.getEmailById(user.userId, id);
   }
