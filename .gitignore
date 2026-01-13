@@ -3,6 +3,9 @@
 /node_modules
 /build
 
+# Build info (generated at build time)
+build-info.json
+
 # Logs
 logs
 *.log

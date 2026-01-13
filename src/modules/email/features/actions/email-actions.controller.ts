@@ -11,6 +11,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@app/libs/guards/jwt-auth.guard';
 import { CurrentUser } from '@app/libs/decorators';
+import { ParseObjectIdPipe } from '@app/libs/utils';
 import { ModifyEmailDto } from '@app/libs/dtos';
 import { EmailActionsService } from './email-actions.service';
 
@@ -25,7 +26,7 @@ export class EmailActionsController {
   @ApiOperation({ summary: 'Toggle star status of an email' })
   async toggleStar(
     @CurrentUser() user: { userId: string },
-    @Param('id') id: string,
+    @Param('id', ParseObjectIdPipe) id: string,
   ) {
     return this.emailActionsService.toggleStar(user.userId, id);
   }
@@ -34,7 +35,7 @@ export class EmailActionsController {
   @ApiOperation({ summary: 'Mark email as read/unread' })
   async markAsRead(
     @CurrentUser() user: { userId: string },
-    @Param('id') id: string,
+    @Param('id', ParseObjectIdPipe) id: string,
     @Body('isRead') isRead: boolean,
   ) {
     return this.emailActionsService.markAsRead(user.userId, id, isRead);
@@ -44,7 +45,7 @@ export class EmailActionsController {
   @ApiOperation({ summary: 'Delete an email' })
   async deleteEmail(
     @CurrentUser() user: { userId: string },
-    @Param('id') id: string,
+    @Param('id', ParseObjectIdPipe) id: string,
   ) {
     return this.emailActionsService.deleteEmail(user.userId, id);
   }
@@ -53,7 +54,7 @@ export class EmailActionsController {
   @ApiOperation({ summary: 'Modify email properties' })
   async modifyEmail(
     @CurrentUser() user: { userId: string },
-    @Param('id') id: string,
+    @Param('id', ParseObjectIdPipe) id: string,
     @Body() data: ModifyEmailDto,
   ) {
     return this.emailActionsService.modifyEmail(user.userId, id, data);
@@ -92,7 +93,7 @@ export class EmailActionsController {
   @ApiOperation({ summary: 'Update email labels for Kanban' })
   async updateLabels(
     @CurrentUser() user: { userId: string },
-    @Param('id') id: string,
+    @Param('id', ParseObjectIdPipe) id: string,
     @Body('labels') labels: string[],
   ) {
     return this.emailActionsService.updateLabels(user.userId, id, labels);
