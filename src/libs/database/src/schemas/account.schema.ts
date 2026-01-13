@@ -10,6 +10,9 @@ type IAccount = {
   googleId?: string;
   googleAccessToken?: string;
   googleRefreshToken?: string;
+  googleTokenExpiry?: Date;
+  imapEmail?: string;
+  imapPassword?: string;
   picture?: string;
   authProvider?: 'local' | 'google';
   role?: string;
@@ -41,6 +44,15 @@ export class Account extends Document implements IAccount {
 
   @Prop()
   googleRefreshToken?: string;
+
+  @Prop()
+  googleTokenExpiry?: Date;
+
+  @Prop()
+  imapEmail?: string;
+
+  @Prop()
+  imapPassword?: string;
 
   @Prop()
   picture?: string;

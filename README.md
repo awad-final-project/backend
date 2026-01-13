@@ -1,51 +1,115 @@
-# Backend - Mail Application API
+# Backend - Email Application API
 
-NestJS backend API cho ứng dụng mail với authentication và email management.
+NestJS backend API cho ứng dụng email với authentication, gửi/nhận email qua SMTP/IMAP, và mã hóa dữ liệu.
+
+## ⚡ Quick Start (2 phút)
+
+```bash
+# 1. Copy config tối thiểu (không cần email!)
+cp .env.minimal .env
+
+# 2. Start MongoDB
+docker run -d -p 27017:27017 --name mongodb mongo:latest
+
+# 3. Install & run
+pnpm install
+pnpm run start:dev
+```
+
+**✅ Đăng ký/đăng nhập hoạt động ngay!** (không cần config email)
+
+📖 Chi tiết: [QUICK_START.md](QUICK_START.md)
+
+---
 
 ## 🚀 Features
 
-- JWT Authentication (access + refresh tokens)
-- Google OAuth 2.0
-- Email CRUD operations
-- MongoDB integration
-- Swagger API documentation
+### Authentication & Authorization
+- ✅ Local authentication (email/password)
+- ✅ Google OAuth 2.0
+- ✅ JWT tokens (access + refresh)
+- ✅ Password reset qua email
+- ✅ Bcrypt password hashing
+- ✅ Session management
+
+### Email System
+- ✅ Gửi email từ Gmail/Outlook của user
+- ✅ Nhận email qua IMAP
+- ✅ Auto-detect email provider (Gmail, Outlook, Yahoo)
+- ✅ Welcome emails
+- ✅ Password reset emails
+- ✅ Attachment support
+
+### Security
+- ✅ AES-256-GCM encryption cho email credentials
+- ✅ Scrypt key derivation
+- ✅ TLS/SSL cho SMTP/IMAP
+- ✅ Secure token generation
+- ✅ Input validation
+
+---
 
 ## 📦 Tech Stack
 
 - **NestJS** - Node.js framework
 - **TypeScript** - Type safety
 - **MongoDB & Mongoose** - Database
-- **Passport.js** - Authentication
+- **Passport.js** - Authentication (Local + Google OAuth)
 - **JWT** - Token management
 - **bcrypt** - Password hashing
+- **Nodemailer** - SMTP client
+- **IMAP-simple** - IMAP client
+- **Crypto** - AES-256-GCM encryption
 
-## 🏗️ Development
+---
 
-### Prerequisites
+## 📚 Documentation
 
-- Node.js 18+
-- MongoDB
-- pnpm (recommended) hoặc npm
+| File | Mô tả |
+|------|-------|
+| [QUICK_START.md](QUICK_START.md) | **Bắt đầu test trong 2 phút** |
+| [EMAIL_CONFIG_GUIDE.md](EMAIL_CONFIG_GUIDE.md) | **Email config có hoặc không** |
+| [SETUP_GUIDE.md](SETUP_GUIDE.md) | Hướng dẫn setup đầy đủ |
+| [AUTHENTICATION_GUIDE.md](AUTHENTICATION_GUIDE.md) | API documentation & security |
+| [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) | Tổng kết các tính năng |
 
-### Setup
+---
+
+## 🏗️ Setup Options
+
+### Option 1: Test nhanh (Không cần email) ⚡
 
 ```bash
-# Install dependencies
+cp .env.minimal .env
 pnpm install
-
-# Copy environment file
-cp .env.template .env
-
-# Edit .env với thông tin của bạn
-nano .env
-
-# Start development server
 pnpm run start:dev
 ```
 
-Server sẽ chạy tại `http://localhost:3000`
+**Hoạt động:**
+- ✅ Đăng ký/đăng nhập
+- ✅ JWT tokens
+- ✅ User gửi/nhận email (user tự cung cấp credentials)
 
-### Environment Variables
+**Không hoạt động:**
+- ❌ Welcome email
+- ❌ Password reset
+
+### Option 2: Full features (Có email) 🎯
+
+```bash
+cp .env.example .env
+# Edit .env và thêm Gmail App Password
+pnpm install
+pnpm run start:dev
+```
+
+**Hoạt động tất cả tính năng!**
+
+📖 Chi tiết: [EMAIL_CONFIG_GUIDE.md](EMAIL_CONFIG_GUIDE.md)
+
+---
+
+## 🔑 Environment Variables
 
 ```env
 # MongoDB

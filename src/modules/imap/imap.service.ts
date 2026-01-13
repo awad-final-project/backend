@@ -4,6 +4,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import * as imaps from 'imap-simple';
 import { simpleParser, ParsedMail, Attachment as MailAttachment } from 'mailparser';
 import { S3Service } from '../storage/s3.service';
+import { detectEmailProvider, getProviderConfig } from './email-provider.config';
 
 export interface ReceivedEmail {
   messageId: string;
@@ -28,6 +29,7 @@ export interface ImapConfig {
   user: string;
   password: string;
   tls: boolean;
+  provider?: string;
 }
 
 @Injectable()
@@ -42,16 +44,25 @@ export class ImapService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     private readonly s3Service: S3Service,
   ) {
+    const userEmail = this.configService.get<string>('IMAP_USER') || '';
+    const detectedProvider = detectEmailProvider(userEmail);
+    const providerConfig = getProviderConfig(detectedProvider);
+
     this.config = {
-      host: this.configService.get<string>('IMAP_HOST') || 'imap.gmail.com',
-      port: this.configService.get<number>('IMAP_PORT') || 993,
-      user: this.configService.get<string>('IMAP_USER') || '',
+      host: this.configService.get<string>('IMAP_HOST') || providerConfig.imap.host,
+      port: this.configService.get<number>('IMAP_PORT') || providerConfig.imap.port,
+      user: userEmail,
       password: this.configService.get<string>('IMAP_PASSWORD') || '',
-      tls: this.configService.get<boolean>('IMAP_TLS') !== false,
+      tls: this.configService.get<boolean>('IMAP_TLS') ?? providerConfig.imap.secure,
+      provider: detectedProvider,
     };
     
     // Check if IMAP is configured
     this.isEnabled = !!(this.config.user && this.config.password);
+    
+    if (this.isEnabled) {
+      this.logger.log(`IMAP configured for provider: ${detectedProvider}`);
+    }
   }
 
   async onModuleInit() {
@@ -64,6 +75,96 @@ export class ImapService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     await this.disconnect();
+  }
+
+  /**
+   * Connect to IMAP server with custom user credentials
+   * Useful for multi-user scenarios where each user has their own email account
+   */
+  async connectWithCredentials(
+    email: string,
+    password: string,
+    customConfig?: Partial<ImapConfig>,
+  ): Promise<imaps.ImapSimple> {
+    try {
+      const provider = detectEmailProvider(email);
+      const providerConfig = getProviderConfig(provider);
+
+      const imapConfig: imaps.ImapSimpleOptions = {
+        imap: {
+          host: customConfig?.host || providerConfig.imap.host,
+          port: customConfig?.port || providerConfig.imap.port,
+          user: email,
+          password: password,
+          tls: customConfig?.tls ?? providerConfig.imap.secure,
+          authTimeout: 10000,
+          tlsOptions: {
+            rejectUnauthorized: false,
+          },
+        },
+      };
+
+      const connection = await imaps.connect(imapConfig);
+      this.logger.log(`Connected to ${provider} IMAP for user: ${email}`);
+      return connection;
+    } catch (error) {
+      this.logger.error(`Failed to connect to IMAP for ${email}: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch emails for a specific user
+   */
+  async fetchEmailsForUser(
+    email: string,
+    password: string,
+    folder: string = 'INBOX',
+    limit: number = 50,
+  ): Promise<ReceivedEmail[]> {
+    let userConnection: imaps.ImapSimple | null = null;
+
+    try {
+      userConnection = await this.connectWithCredentials(email, password);
+      await userConnection.openBox(folder);
+
+      const searchCriteria = ['ALL'];
+      const fetchOptions = {
+        bodies: ['HEADER', 'TEXT', ''],
+        markSeen: false,
+        struct: true,
+      };
+
+      const messages = await userConnection.search(searchCriteria, fetchOptions);
+      const limitedMessages = messages.slice(-limit);
+      const emails: ReceivedEmail[] = [];
+
+      for (const message of limitedMessages) {
+        try {
+          const all = message.parts.find((part) => part.which === '');
+          if (!all) continue;
+
+          const parsed = await simpleParser(all.body);
+          const email = await this.parseEmail(parsed);
+          emails.push(email);
+        } catch (error) {
+          this.logger.error(`Error parsing email: ${error.message}`);
+        }
+      }
+
+      return emails;
+    } catch (error) {
+      this.logger.error(`Error fetching emails for user ${email}: ${error.message}`);
+      throw error;
+    } finally {
+      if (userConnection) {
+        try {
+          userConnection.end();
+        } catch (closeError) {
+          this.logger.error(`Error closing connection: ${closeError.message}`);
+        }
+      }
+    }
   }
 
   /**
@@ -344,5 +445,136 @@ export class ImapService implements OnModuleInit, OnModuleDestroy {
    */
   isServiceAvailable(): boolean {
     return this.isEnabled && this.isConnected;
+  }
+
+  /**
+   * Fetch emails with user-specific credentials
+   */
+  async fetchEmailsWithCredentials(
+    email: string,
+    password: string,
+    folder: string = 'INBOX',
+    limit: number = 50,
+  ): Promise<ReceivedEmail[]> {
+    let connection: imaps.ImapSimple | null = null;
+
+    try {
+      connection = await this.connectWithCredentials(email, password);
+      await connection.openBox(folder);
+
+      const searchCriteria = ['ALL'];
+      const fetchOptions = {
+        bodies: ['HEADER', 'TEXT', ''],
+        markSeen: false,
+        struct: true,
+      };
+
+      const messages = await connection.search(searchCriteria, fetchOptions);
+      const limitedMessages = messages.slice(-limit);
+      const emails: ReceivedEmail[] = [];
+
+      for (const message of limitedMessages) {
+        try {
+          const all = message.parts.find((part) => part.which === '');
+          if (!all) continue;
+
+          const parsed = await simpleParser(all.body);
+          const email = await this.parseEmail(parsed);
+          
+          // Add message UID as ID
+          (email as any).uid = message.attributes?.uid;
+          
+          emails.push(email);
+        } catch (error) {
+          this.logger.error(`Error parsing email: ${error.message}`);
+        }
+      }
+
+      return emails;
+    } catch (error) {
+      this.logger.error(`Error fetching emails with credentials: ${error.message}`);
+      return [];
+    } finally {
+      if (connection) {
+        connection.end();
+      }
+    }
+  }
+
+  /**
+   * Fetch specific email by message ID with user credentials
+   */
+  async fetchEmailByIdWithCredentials(
+    email: string,
+    password: string,
+    messageId: string,
+  ): Promise<ReceivedEmail | null> {
+    let connection: imaps.ImapSimple | null = null;
+
+    try {
+      connection = await this.connectWithCredentials(email, password);
+      await connection.openBox('INBOX');
+
+      const searchCriteria = [['HEADER', 'MESSAGE-ID', messageId]];
+      const fetchOptions = {
+        bodies: ['HEADER', 'TEXT', ''],
+        markSeen: false,
+        struct: true,
+      };
+
+      const messages = await connection.search(searchCriteria, fetchOptions);
+      
+      if (messages.length === 0) {
+        return null;
+      }
+
+      const message = messages[0];
+      const all = message.parts.find((part) => part.which === '');
+      if (!all) return null;
+
+      const parsed = await simpleParser(all.body);
+      return await this.parseEmail(parsed);
+    } catch (error) {
+      this.logger.error(`Error fetching email by ID: ${error.message}`);
+      return null;
+    } finally {
+      if (connection) {
+        connection.end();
+      }
+    }
+  }
+
+  /**
+   * Delete email with user credentials
+   */
+  async deleteEmailWithCredentials(
+    email: string,
+    password: string,
+    messageId: string,
+  ): Promise<void> {
+    let connection: imaps.ImapSimple | null = null;
+
+    try {
+      connection = await this.connectWithCredentials(email, password);
+      await connection.openBox('INBOX');
+
+      const searchCriteria = [['HEADER', 'MESSAGE-ID', messageId]];
+      const messages = await connection.search(searchCriteria, {});
+      
+      if (messages.length > 0) {
+        const uid = messages[0].attributes?.uid;
+        if (uid) {
+          await connection.addFlags(uid, ['\\Deleted']);
+          this.logger.log(`Deleted email ${messageId}`);
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Error deleting email: ${error.message}`);
+      throw error;
+    } finally {
+      if (connection) {
+        connection.end();
+      }
+    }
   }
 }

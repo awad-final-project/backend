@@ -4,6 +4,7 @@ import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from '../auth/auth.module';
 import { EmailModule } from '../email/email.module';
+import { InfoModule } from '../info/info.module';
 import { DatabaseModule } from '../../libs/database/src/database.module';
 
 @Module({
@@ -12,6 +13,7 @@ import { DatabaseModule } from '../../libs/database/src/database.module';
     DatabaseModule,
     AuthModule, 
     EmailModule,
+    InfoModule,
   ],
   controllers: [AppController],
   providers: [AppService],

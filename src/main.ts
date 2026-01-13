@@ -5,9 +5,18 @@ import cookieParser from 'cookie-parser';
 
 import { ThrowFirstErrorValidationPipe } from './libs/utils/pipes';
 import { AppModule } from './modules/app/app.module';
+import {
+  CustomLogger,
+  HttpLoggingInterceptor,
+  GlobalExceptionFilter,
+} from './libs/utils';
 
 async function createApp() {
+  // Create app with custom logger
+  const customLogger = new CustomLogger('Bootstrap');
+  
   const app = await NestFactory.create(AppModule, {
+    logger: customLogger,
     cors: {
       origin: process.env.CORS_ORIGIN || ['http://localhost:5173', 'http://localhost:3000'],
       methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
@@ -22,7 +31,15 @@ async function createApp() {
   app.use(cookieParser());
   
   app.setGlobalPrefix(globalPrefix);
+  
+  // Apply global pipes
   app.useGlobalPipes(ThrowFirstErrorValidationPipe);
+  
+  // Apply global exception filter for detailed error logging
+  app.useGlobalFilters(new GlobalExceptionFilter());
+  
+  // Apply HTTP logging interceptor for request/response logging
+  app.useGlobalInterceptors(new HttpLoggingInterceptor());
 
   const config = new DocumentBuilder()
     .setTitle('Email Application API')
@@ -38,12 +55,28 @@ async function createApp() {
 }
 
 async function bootstrap() {
-  const app = await createApp();
-  const port = process.env.PORT || 3000;
-  await app.listen(port, '0.0.0.0');
-  Logger.log(
-    `🚀 Main application is running on: http://0.0.0.0:${port}/`,
-  );
+  const logger = new CustomLogger('Bootstrap');
+  
+  try {
+    const app = await createApp();
+    const port = process.env.PORT || 3000;
+    const env = process.env.NODE_ENV || 'development';
+    
+    await app.listen(port, '0.0.0.0');
+    
+    logger.log(`🚀 Application started successfully`, undefined, {
+      port,
+      environment: env,
+      url: `http://0.0.0.0:${port}/`,
+      swaggerDocs: `http://0.0.0.0:${port}/`,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('❌ Failed to start application', error.stack, undefined, {
+      error: error.message,
+    });
+    process.exit(1);
+  }
 }
 
 // For Vercel serverless deployment

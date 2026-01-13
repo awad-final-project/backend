@@ -5,6 +5,8 @@ import { CurrentUser } from '@app/libs/decorators';
 import { AiService } from './ai.service';
 import { EmailModel } from '@database/models';
 import { EmailProviderFactory } from '@email/providers/email-provider.factory';
+import { SyncService } from '@email/features/sync/sync.service';
+import { isValidObjectId } from 'mongoose';
 
 @ApiTags('Email - AI')
 @ApiBearerAuth()
@@ -15,6 +17,7 @@ export class AiController {
     private readonly aiService: AiService,
     private readonly emailModel: EmailModel,
     private readonly providerFactory: EmailProviderFactory,
+    private readonly syncService: SyncService,
   ) {}
 
   @Post('summarize/:emailId')
@@ -26,20 +29,19 @@ export class AiController {
     @CurrentUser() user: { userId: string },
     @Param('emailId') emailId: string,
   ) {
-    // Use provider pattern to support both Gmail and Database providers
-    const provider = await this.providerFactory.getProvider(user.userId);
-    const email = await provider.getEmailById(user.userId, emailId);
+    // Try to get cached summary from database first
+    // Build query conditionally - only include _id if emailId is valid ObjectId
+    const orConditions: any[] = [
+      { gmailMessageId: emailId }, // Gmail: Gmail message ID
+      { imapMessageId: emailId }, // IMAP: IMAP message ID
+    ];
     
-    if (!email) {
-      throw new HttpException('Email not found', HttpStatus.NOT_FOUND);
+    if (isValidObjectId(emailId)) {
+      orConditions.unshift({ _id: emailId }); // Local mail: MongoDB ObjectID
     }
-
-    // Try to get cached summary from database (for both Gmail and local emails)
+    
     const dbEmail = await this.emailModel.findOne({
-      $or: [
-        { _id: emailId }, // Local mail: MongoDB ObjectID
-        { gmailMessageId: emailId }, // Gmail: Gmail message ID
-      ],
+      $or: orConditions,
       accountId: user.userId,
     });
 
@@ -52,6 +54,17 @@ export class AiController {
       };
     }
 
+    // If not cached, fetch from provider
+    const provider = await this.providerFactory.getProvider(user.userId);
+    const email = await provider.getEmailById(user.userId, emailId);
+    
+    if (!email) {
+      throw new HttpException('Email not found', HttpStatus.NOT_FOUND);
+    }
+
+    // Sync email to database for future use
+    await this.syncService.syncSingleEmail(user.userId, emailId, email);
+
     // Generate new summary
     const summary = await this.aiService.summarizeEmail({
       subject: email.subject,
@@ -59,32 +72,29 @@ export class AiController {
       body: email.body,
     });
 
-    // Save summary to database for caching
-    if (dbEmail) {
-      // Update existing record
+    // Update database with summary
+    const updateOrConditions: any[] = [
+      { gmailMessageId: emailId },
+      { imapMessageId: emailId },
+    ];
+    
+    if (isValidObjectId(emailId)) {
+      updateOrConditions.unshift({ _id: emailId });
+    }
+    
+    const updatedEmail = await this.emailModel.findOne({
+      $or: updateOrConditions,
+      accountId: user.userId,
+    });
+
+    if (updatedEmail) {
       await this.emailModel.updateOne(
-        { _id: dbEmail._id },
+        { _id: updatedEmail._id },
         {
           aiSummary: summary,
           summarizedAt: new Date(),
         },
       );
-    } else {
-      // Create new record for Gmail emails
-      await this.emailModel.save({
-        gmailMessageId: emailId,
-        accountId: user.userId,
-        subject: email.subject,
-        from: email.from,
-        to: email.to,
-        body: email.body,
-        sentAt: email.sentAt,
-        folder: email.folder || 'inbox',
-        isRead: email.isRead,
-        isStarred: email.isStarred,
-        aiSummary: summary,
-        summarizedAt: new Date(),
-      });
     }
 
     return {
@@ -110,6 +120,9 @@ export class AiController {
     if (!email) {
       throw new HttpException('Email not found', HttpStatus.NOT_FOUND);
     }
+
+    // Sync email if not already cached
+    await this.syncService.syncSingleEmail(user.userId, emailId, email);
 
     const draft = await this.aiService.generateReplyDraft({
       subject: email.subject,

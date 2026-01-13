@@ -4,3 +4,5 @@ export * from './refresh-token.schema';
 export * from './attachment.schema';
 export * from './kanban-column.schema';
 export * from './kanban-card.schema';
+export * from './email.schema';
+export * from './password-reset.schema';

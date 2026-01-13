@@ -5,3 +5,6 @@ export * from './reply-email.dto';
 export * from './modify-email.dto';
 export * from './snooze-email.dto';
 export * from './kanban.dto';
+export * from './request-password-reset.dto';
+export * from './reset-password.dto';
+export * from './change-password.dto';
