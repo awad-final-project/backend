@@ -72,10 +72,21 @@ export class AuthController {
     @Req() req: any,
     @Res({ passthrough: true }) res: Response,
   ) {
+    // Debug logging
+    console.log('🔍 Refresh request:', {
+      hasBodyToken: !!refreshToken,
+      bodyTokenLength: refreshToken?.length || 0,
+      hasCookieToken: !!req.cookies?.refreshToken,
+      cookieTokenLength: req.cookies?.refreshToken?.length || 0,
+      useCookieAuth: process.env.USE_COOKIE_AUTH,
+      body: req.body,
+    });
+    
     // Support both cookie and body-based refresh tokens
     const token = req.cookies?.refreshToken || refreshToken;
     
     if (!token) {
+      console.error('❌ No refresh token found in request');
       throw new Error('Refresh token not provided');
     }
     
