@@ -195,6 +195,7 @@ export class ImapProviderService implements IEmailProvider {
             contentType: att.mimeType,
           })),
         },
+        user.emailProvider || 'other',
       );
 
       this.logger.log(`Email sent via SMTP for user ${userId}`);

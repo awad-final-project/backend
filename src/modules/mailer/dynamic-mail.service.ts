@@ -31,11 +31,11 @@ export class DynamicMailService {
   /**
    * Create SMTP transporter for a user's email
    */
-  private createTransporter(email: string, password: string): Transporter {
-    const provider = detectEmailProvider(email);
-    const config = getProviderConfig(provider);
+  private createTransporter(email: string, password: string, provider?: string): Transporter {
+    const detectedProvider = provider || detectEmailProvider(email);
+    const config = getProviderConfig(detectedProvider);
 
-    this.logger.log(`Creating SMTP transporter for ${provider} provider`);
+    this.logger.log(`Creating SMTP transporter for ${detectedProvider} provider`);
 
     return nodemailer.createTransport({
       host: config.smtp.host,
@@ -58,9 +58,10 @@ export class DynamicMailService {
     userEmail: string,
     userPassword: string,
     options: DynamicMailOptions,
+    provider?: string,
   ): Promise<void> {
     try {
-      const transporter = this.createTransporter(userEmail, userPassword);
+      const transporter = this.createTransporter(userEmail, userPassword, provider);
 
       const mailOptions = {
         from: options.from || userEmail,
@@ -88,9 +89,9 @@ export class DynamicMailService {
   /**
    * Verify SMTP credentials
    */
-  async verifyCredentials(email: string, password: string): Promise<boolean> {
+  async verifyCredentials(email: string, password: string, provider: string = 'other'): Promise<boolean> {
     try {
-      const transporter = this.createTransporter(email, password);
+      const transporter = this.createTransporter(email, password, provider);
       await transporter.verify();
       transporter.close();
       this.logger.log(`SMTP credentials verified for ${email}`);
@@ -108,6 +109,7 @@ export class DynamicMailService {
     userEmail: string,
     userPassword: string,
     options: DynamicMailOptions,
+    provider?: string,
   ): Promise<void> {
     try {
       // Ensure content encoding is preserved
@@ -120,7 +122,7 @@ export class DynamicMailService {
         },
       };
 
-      await this.sendMailWithCredentials(userEmail, userPassword, enhancedOptions);
+      await this.sendMailWithCredentials(userEmail, userPassword, enhancedOptions, provider);
       this.logger.log(`Encrypted email sent with full content preservation`);
     } catch (error) {
       this.logger.error(`Failed to send encrypted email: ${error.message}`);

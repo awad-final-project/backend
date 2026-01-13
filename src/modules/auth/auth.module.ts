@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthController } from './auth.controller';
+import { UserEmailConfigController } from './user-email-config.controller';
 import { AuthService } from './auth.service';
 import { DatabaseModule } from '../../libs/database/src/database.module';
 import { JwtModule } from '@nestjs/jwt';
@@ -32,7 +33,7 @@ import { MailModule } from '../mailer';
     DatabaseModule,
     MailModule,
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, UserEmailConfigController],
   providers: [AuthService, GoogleStrategy, LocalStrategy],
   exports: [AuthService],
 })
