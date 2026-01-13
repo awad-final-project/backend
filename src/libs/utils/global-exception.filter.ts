@@ -7,7 +7,13 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { MongoError } from 'mongodb';
+
+interface MongoError extends Error {
+  code?: number;
+  codeName?: string;
+  keyPattern?: Record<string, any>;
+  keyValue?: Record<string, any>;
+}
 
 interface ErrorResponse {
   statusCode: number;
@@ -23,6 +29,18 @@ interface ErrorResponse {
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger('ExceptionFilter');
+
+  /**
+   * Type guard to check if exception is a MongoDB error
+   */
+  private isMongoError(exception: unknown): exception is MongoError {
+    return (
+      typeof exception === 'object' &&
+      exception !== null &&
+      'code' in exception &&
+      typeof (exception as any).code === 'number'
+    );
+  }
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -52,7 +70,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
       errorName = exception.name;
       stack = exception.stack;
-    } else if (exception instanceof MongoError) {
+    } else if (this.isMongoError(exception)) {
       // Handle MongoDB errors
       status = HttpStatus.BAD_REQUEST;
       errorName = 'DatabaseError';
@@ -61,14 +79,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         message = 'Duplicate key error';
         details = {
           code: exception.code,
-          keyPattern: (exception as any).keyPattern,
-          keyValue: (exception as any).keyValue,
+          keyPattern: exception.keyPattern,
+          keyValue: exception.keyValue,
         };
       } else {
         message = exception.message;
         details = {
           code: exception.code,
-          codeName: (exception as any).codeName,
+          codeName: exception.codeName,
         };
       }
 
