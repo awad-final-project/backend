@@ -84,6 +84,9 @@ export class Email extends Document implements IEmail {
   @Prop({ unique: false, sparse: true })
   gmailMessageId?: string;
 
+  @Prop({ unique: false, sparse: true })
+  imapMessageId?: string;
+
   @Prop({ type: [String], default: [] })
   cc?: string[];
 

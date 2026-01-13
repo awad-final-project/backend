@@ -446,4 +446,135 @@ export class ImapService implements OnModuleInit, OnModuleDestroy {
   isServiceAvailable(): boolean {
     return this.isEnabled && this.isConnected;
   }
+
+  /**
+   * Fetch emails with user-specific credentials
+   */
+  async fetchEmailsWithCredentials(
+    email: string,
+    password: string,
+    folder: string = 'INBOX',
+    limit: number = 50,
+  ): Promise<ReceivedEmail[]> {
+    let connection: imaps.ImapSimple | null = null;
+
+    try {
+      connection = await this.connectWithCredentials(email, password);
+      await connection.openBox(folder);
+
+      const searchCriteria = ['ALL'];
+      const fetchOptions = {
+        bodies: ['HEADER', 'TEXT', ''],
+        markSeen: false,
+        struct: true,
+      };
+
+      const messages = await connection.search(searchCriteria, fetchOptions);
+      const limitedMessages = messages.slice(-limit);
+      const emails: ReceivedEmail[] = [];
+
+      for (const message of limitedMessages) {
+        try {
+          const all = message.parts.find((part) => part.which === '');
+          if (!all) continue;
+
+          const parsed = await simpleParser(all.body);
+          const email = await this.parseEmail(parsed);
+          
+          // Add message UID as ID
+          (email as any).uid = message.attributes?.uid;
+          
+          emails.push(email);
+        } catch (error) {
+          this.logger.error(`Error parsing email: ${error.message}`);
+        }
+      }
+
+      return emails;
+    } catch (error) {
+      this.logger.error(`Error fetching emails with credentials: ${error.message}`);
+      return [];
+    } finally {
+      if (connection) {
+        connection.end();
+      }
+    }
+  }
+
+  /**
+   * Fetch specific email by message ID with user credentials
+   */
+  async fetchEmailByIdWithCredentials(
+    email: string,
+    password: string,
+    messageId: string,
+  ): Promise<ReceivedEmail | null> {
+    let connection: imaps.ImapSimple | null = null;
+
+    try {
+      connection = await this.connectWithCredentials(email, password);
+      await connection.openBox('INBOX');
+
+      const searchCriteria = [['HEADER', 'MESSAGE-ID', messageId]];
+      const fetchOptions = {
+        bodies: ['HEADER', 'TEXT', ''],
+        markSeen: false,
+        struct: true,
+      };
+
+      const messages = await connection.search(searchCriteria, fetchOptions);
+      
+      if (messages.length === 0) {
+        return null;
+      }
+
+      const message = messages[0];
+      const all = message.parts.find((part) => part.which === '');
+      if (!all) return null;
+
+      const parsed = await simpleParser(all.body);
+      return await this.parseEmail(parsed);
+    } catch (error) {
+      this.logger.error(`Error fetching email by ID: ${error.message}`);
+      return null;
+    } finally {
+      if (connection) {
+        connection.end();
+      }
+    }
+  }
+
+  /**
+   * Delete email with user credentials
+   */
+  async deleteEmailWithCredentials(
+    email: string,
+    password: string,
+    messageId: string,
+  ): Promise<void> {
+    let connection: imaps.ImapSimple | null = null;
+
+    try {
+      connection = await this.connectWithCredentials(email, password);
+      await connection.openBox('INBOX');
+
+      const searchCriteria = [['HEADER', 'MESSAGE-ID', messageId]];
+      const messages = await connection.search(searchCriteria, {});
+      
+      if (messages.length > 0) {
+        const uid = messages[0].attributes?.uid;
+        if (uid) {
+          await connection.addFlags(uid, ['\\Deleted']);
+          this.logger.log(`Deleted email ${messageId}`);
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Error deleting email: ${error.message}`);
+      throw error;
+    } finally {
+      if (connection) {
+        connection.end();
+      }
+    }
+  }
 }

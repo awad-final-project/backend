@@ -8,6 +8,7 @@ import { MailModule } from '@app/modules/mailer';
 import { ImapModule } from '@app/modules/imap';
 
 import { GmailProviderService } from './gmail/gmail-provider.service';
+import { ImapProviderService } from './imap/imap-provider.service';
 import { DatabaseProviderService } from './database/database-provider.service';
 import { EmailProviderFactory } from './email-provider.factory';
 
@@ -34,6 +35,7 @@ import { EmailProviderFactory } from './email-provider.factory';
   ],
   providers: [
     GmailProviderService,
+    ImapProviderService,
     DatabaseProviderService,
     EmailProviderFactory,
   ],
@@ -46,6 +48,7 @@ import { EmailProviderFactory } from './email-provider.factory';
     AccessTokenModelModule,
     // Export providers
     GmailProviderService,
+    ImapProviderService,
     DatabaseProviderService,
     EmailProviderFactory,
   ],

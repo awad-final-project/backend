@@ -7,6 +7,7 @@ import { Email, EmailDocument } from '@database/schemas/email.schema';
 import Fuse from 'fuse.js';
 import * as levenshtein from 'fast-levenshtein';
 import { EmailProviderFactory } from '@email/providers/email-provider.factory';
+import { SyncService } from '@email/features/sync/sync.service';
 
 export interface SearchResult {
   email: EmailDocument;
@@ -39,12 +40,14 @@ export class SearchService {
     private readonly emailModel: EmailModel,
     @InjectModel(Email.name) private readonly emailMongooseModel: Model<EmailDocument>,
     private readonly providerFactory: EmailProviderFactory,
+    private readonly syncService: SyncService,
   ) {
     this.apiKey = this.configService.get<string>('GEMINI_API_KEY');
   }
 
   /**
    * Main search method that combines fuzzy, partial, and semantic search
+   * Now works with synced Gmail/IMAP emails
    */
   async search(options: SearchOptions): Promise<SearchResult[]> {
     const { query, userId, folder, limit = 50, includeSemantic = true } = options;
@@ -54,7 +57,16 @@ export class SearchService {
     }
 
     try {
-      // Get all emails for the user
+      // Check if sync is needed (for Gmail/IMAP users)
+      const syncInProgress = this.syncService.isSyncInProgress(userId, folder);
+      if (!syncInProgress) {
+        // Trigger background sync if not already running
+        this.syncService.syncFolder(userId, folder || 'inbox', 50).catch((error) => {
+          this.logger.warn(`Background sync failed during search: ${error.message}`);
+        });
+      }
+
+      // Get all emails for the user from database (includes synced Gmail/IMAP emails)
       const filter: any = { accountId: userId };
       if (folder && folder !== 'all') {
         if (folder === 'starred') {

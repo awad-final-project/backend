@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { IEmailProvider, IEmailProviderFactory } from '@email/common/interfaces';
 import { GmailProviderService } from './gmail/gmail-provider.service';
+import { ImapProviderService } from './imap/imap-provider.service';
 import { DatabaseProviderService } from './database/database-provider.service';
 
 /**
@@ -14,12 +15,13 @@ export class EmailProviderFactory implements IEmailProviderFactory {
 
   constructor(
     private readonly gmailProvider: GmailProviderService,
+    private readonly imapProvider: ImapProviderService,
     private readonly databaseProvider: DatabaseProviderService,
   ) {}
 
   /**
    * Get appropriate provider for user
-   * Priority: Gmail > IMAP > Database (fallback)
+   * Priority: Gmail > IMAP/SMTP > Database (fallback)
    */
   async getProvider(userId: string): Promise<IEmailProvider> {
     // Try Gmail first
@@ -29,9 +31,12 @@ export class EmailProviderFactory implements IEmailProviderFactory {
       return this.gmailProvider;
     }
 
-    // Add IMAP check here in future
-    // const imapAvailable = await this.imapProvider.isAvailable(userId);
-    // if (imapAvailable) return this.imapProvider;
+    // Try IMAP/SMTP
+    const imapAvailable = await this.imapProvider.isAvailable(userId);
+    if (imapAvailable) {
+      this.logger.log(`Using IMAP/SMTP provider for user ${userId}`);
+      return this.imapProvider;
+    }
 
     // Fallback to database
     this.logger.log(`Using Database provider for user ${userId}`);

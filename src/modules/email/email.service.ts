@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { isValidObjectId } from 'mongoose';
 import { simpleParser, ParsedMail } from 'mailparser';
 import { MailService, DynamicMailService } from '../mailer';
-import { AttachmentService } from './attachment.service';
+import { AttachmentService } from './features/attachment/attachment.service';
 import { IAttachmentRef } from '../../libs/database/src/schemas/email.schema';
 
 @Injectable()
