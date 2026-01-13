@@ -470,7 +470,8 @@ export class AuthService {
       // Generate JWT tokens for application authentication
 
       // Generate tokens
-      this.logger.log(`Generating JWT tokens for Google user: ${user.email}`);\n      const accessToken = await this.generateAccessToken(
+      this.logger.log(`Generating JWT tokens for Google user: ${user.email}`);
+      const accessToken = await this.generateAccessToken(
         user._id as string,
         user.email,
         user.username,
@@ -481,7 +482,8 @@ export class AuthService {
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + this.REFRESH_TOKEN_EXPIRY_DAYS);
 
-      this.logger.log(`Saving refresh token for Google user: ${user.email}, expires: ${expiresAt.toISOString()}`);\n      await this.refreshTokenModel.save({
+      this.logger.log(`Saving refresh token for Google user: ${user.email}, expires: ${expiresAt.toISOString()}`);
+      await this.refreshTokenModel.save({
         token: refreshToken,
         accountId: user._id as string,
         expiresAt,
@@ -492,7 +494,8 @@ export class AuthService {
         accountId: user._id as string,
       });
 
-      this.logger.log(`Google authentication successful for: ${user.email}`);\n      return {
+      this.logger.log(`Google authentication successful for: ${user.email}`);
+      return {
         accessToken,
         refreshToken,
         email: user.email,
