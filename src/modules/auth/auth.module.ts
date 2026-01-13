@@ -9,8 +9,11 @@ import {
   AccessTokenModelModule,
   AccountModelModule,
   RefreshTokenModule,
+  PasswordResetModule,
 } from '../../libs/database/src/models';
 import { GoogleStrategy } from './strategies/google.strategy';
+import { LocalStrategy } from './strategies/local.strategy';
+import { MailModule } from '../mailer';
 
 @Module({
   imports: [
@@ -25,9 +28,12 @@ import { GoogleStrategy } from './strategies/google.strategy';
     AccountModelModule,
     AccessTokenModelModule,
     RefreshTokenModule,
+    PasswordResetModule,
     DatabaseModule,
+    MailModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, GoogleStrategy],
+  providers: [AuthService, GoogleStrategy, LocalStrategy],
+  exports: [AuthService],
 })
 export class AuthModule {}

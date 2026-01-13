@@ -8,3 +8,4 @@ export * from './attachment';
 export * from './kanban-column/kanban-column.model';
 export * from './kanban-card/kanban-card.model';
 export * from './kanban.model.module';
+export * from './password-reset';

@@ -7,6 +7,9 @@ import { google } from 'googleapis';
 import { ConfigService } from '@nestjs/config';
 import { isValidObjectId } from 'mongoose';
 import { simpleParser, ParsedMail } from 'mailparser';
+import { MailService, DynamicMailService } from '../mailer';
+import { AttachmentService } from './attachment.service';
+import { IAttachmentRef } from '../../libs/database/src/schemas/email.schema';
 
 @Injectable()
 export class EmailService {
@@ -16,6 +19,9 @@ export class EmailService {
     private readonly emailModel: EmailModel,
     private readonly accountModel: AccountModel,
     private readonly configService: ConfigService,
+    private readonly mailService: MailService,
+    private readonly attachmentService: AttachmentService,
+    private readonly dynamicMailService: DynamicMailService,
   ) {}
 
   private async getGmailClient(userId: string) {

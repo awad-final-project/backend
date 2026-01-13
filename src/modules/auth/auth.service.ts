@@ -1,21 +1,45 @@
-import { AccessTokenModel, AccountModel, RefreshTokenModel } from '../../libs/database/src/models';
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { AccessTokenModel, AccountModel, RefreshTokenModel, PasswordResetModel } from '../../libs/database/src/models';
+import { HttpException, HttpStatus, Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { SignUpDto } from '../../libs/dtos';
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
-import { randomBytes } from 'crypto';
+import { randomBytes, createCipheriv, createDecipheriv, scrypt } from 'crypto';
+import { promisify } from 'util';
+import { ConfigService } from '@nestjs/config';
+import { MailService } from '../mailer';
+
+const scryptAsync = promisify(scrypt);
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly REFRESH_TOKEN_EXPIRY_DAYS = 7;
+  private readonly ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+  private readonly IV_LENGTH = 16;
+  private readonly SALT_LENGTH = 64;
+  private readonly TAG_LENGTH = 16;
+  private readonly KEY_LENGTH = 32;
 
   constructor(
     private readonly accountModel: AccountModel,
     private readonly accessTokenModel: AccessTokenModel,
     private readonly refreshTokenModel: RefreshTokenModel,
     private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+    @Inject(forwardRef(() => MailService))
+    private readonly mailService: MailService,
+    private readonly passwordResetModel: PasswordResetModel,
   ) {}
+
+  /**
+   * Check if email service is configured
+   */
+  private isEmailConfigured(): boolean {
+    const mailHost = this.configService.get<string>('MAIL_HOST');
+    const mailUser = this.configService.get<string>('MAIL_USER');
+    const mailPassword = this.configService.get<string>('MAIL_PASSWORD');
+    return !!(mailHost && mailUser && mailPassword);
+  }
 
   private async generateAccessToken(userId: string, email: string, username: string, role: string) {
     const payload = { userId, email, username, role };
@@ -35,12 +59,101 @@ export class AuthService {
     return await bcrypt.compare(password, hashedPassword);
   }
 
+  /**
+   * Validate user credentials (for Local Strategy)
+   */
+  async validateUser(email: string, password: string) {
+    try {
+      const user = await this.accountModel.findOne({ email });
+      if (!user || !user.password) {
+        return null;
+      }
+
+      const isPasswordValid = await this.validatePassword(password, user.password);
+      if (!isPasswordValid) {
+        return null;
+      }
+
+      return {
+        userId: user._id,
+        email: user.email,
+        username: user.username,
+        role: user.role || 'user',
+      };
+    } catch (error) {
+      this.logger.error(`Error validating user: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Encrypt email credentials (for SMTP/IMAP)
+   */
+  async encryptCredentials(data: string, userPassword: string): Promise<string> {
+    try {
+      const salt = randomBytes(this.SALT_LENGTH);
+      const key = (await scryptAsync(userPassword, salt, this.KEY_LENGTH)) as Buffer;
+      const iv = randomBytes(this.IV_LENGTH);
+      
+      const cipher = createCipheriv(this.ENCRYPTION_ALGORITHM, key, iv);
+      
+      const encrypted = Buffer.concat([
+        cipher.update(data, 'utf8'),
+        cipher.final(),
+      ]);
+      
+      const tag = cipher.getAuthTag();
+      
+      // Combine salt + iv + tag + encrypted data
+      const result = Buffer.concat([salt, iv, tag, encrypted]);
+      return result.toString('base64');
+    } catch (error) {
+      this.logger.error(`Error encrypting credentials: ${error.message}`);
+      throw new HttpException('Error encrypting credentials', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  /**
+   * Decrypt email credentials (for SMTP/IMAP)
+   */
+  async decryptCredentials(encryptedData: string, userPassword: string): Promise<string> {
+    try {
+      const buffer = Buffer.from(encryptedData, 'base64');
+      
+      const salt = buffer.subarray(0, this.SALT_LENGTH);
+      const iv = buffer.subarray(this.SALT_LENGTH, this.SALT_LENGTH + this.IV_LENGTH);
+      const tag = buffer.subarray(
+        this.SALT_LENGTH + this.IV_LENGTH,
+        this.SALT_LENGTH + this.IV_LENGTH + this.TAG_LENGTH,
+      );
+      const encrypted = buffer.subarray(this.SALT_LENGTH + this.IV_LENGTH + this.TAG_LENGTH);
+      
+      const key = (await scryptAsync(userPassword, salt, this.KEY_LENGTH)) as Buffer;
+      
+      const decipher = createDecipheriv(this.ENCRYPTION_ALGORITHM, key, iv);
+      decipher.setAuthTag(tag);
+      
+      const decrypted = Buffer.concat([
+        decipher.update(encrypted),
+        decipher.final(),
+      ]);
+      
+      return decrypted.toString('utf8');
+    } catch (error) {
+      this.logger.error(`Error decrypting credentials: ${error.message}`);
+      throw new HttpException('Error decrypting credentials', HttpStatus.UNAUTHORIZED);
+    }
+  }
+
   async registerUser(data: SignUpDto) {
     try {
-      const user = await this.accountModel.findOne({ email: data.email });
-      if (user) {
+      // Auto-generate email from username with @hkt.com domain
+      const email = `${data.username.toLowerCase()}@hkt.com`;
+      
+      const existingUser = await this.accountModel.findOne({ email });
+      if (existingUser) {
         throw new HttpException(
-          'The email is already in use',
+          'Username already exists',
           HttpStatus.BAD_REQUEST,
         );
       }
@@ -54,13 +167,33 @@ export class AuthService {
         );
       }
       const hashedPassword = await this.hashPassword(data.password);
-      await this.accountModel.save({
+      const newUser = await this.accountModel.save({
         username: data.username,
-        email: data.email,
+        email: email,
         password: hashedPassword,
         role: 'user',
+        authProvider: 'local',
       });
-      return { message: 'User registered successfully' };
+
+      // Send welcome email (only if email is configured)
+      if (this.isEmailConfigured()) {
+        try {
+          await this.mailService.sendWelcomeEmail(email, data.username);
+          this.logger.log(`Welcome email sent to ${email}`);
+        } catch (emailError) {
+          this.logger.error(`Failed to send welcome email: ${emailError.message}`);
+          // Don't fail registration if email fails
+        }
+      } else {
+        this.logger.warn('Email service not configured - skipping welcome email');
+      }
+
+      return { 
+        message: 'User registered successfully',
+        userId: newUser._id,
+        email: newUser.email,
+        username: newUser.username,
+      };
     } catch (error) {
       this.logger.error(error);
       if (error instanceof HttpException) {
@@ -352,6 +485,167 @@ export class AuthService {
       }
       throw new HttpException(
         'Error with Google authentication',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Request password reset
+   */
+  async requestPasswordReset(email: string): Promise<{ message: string }> {
+    try {
+      // Check if email service is configured
+      if (!this.isEmailConfigured()) {
+        throw new HttpException(
+          'Email service is not configured. Please contact administrator.',
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
+
+      const user = await this.accountModel.findOne({ email });
+      if (!user) {
+        // Don't reveal if user exists for security
+        return { message: 'If the email exists, a reset link will be sent' };
+      }
+
+      // Generate secure reset token
+      const resetToken = randomBytes(32).toString('hex');
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 1); // Token expires in 1 hour
+
+      // Save reset token
+      await this.passwordResetModel.save({
+        email,
+        token: resetToken,
+        expiresAt,
+        used: false,
+      });
+
+      // Send password reset email
+      try {
+        await this.mailService.sendPasswordResetEmail(email, resetToken);
+        this.logger.log(`Password reset email sent to ${email}`);
+      } catch (emailError) {
+        this.logger.error(`Failed to send password reset email: ${emailError.message}`);
+        throw new HttpException(
+          'Failed to send reset email',
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+
+      return { message: 'If the email exists, a reset link will be sent' };
+    } catch (error) {
+      this.logger.error(`Error requesting password reset: ${error.message}`);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Error processing password reset request',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Reset password with token
+   */
+  async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+    try {
+      // Find valid reset token
+      const resetRecord = await this.passwordResetModel.findOne({
+        token,
+        used: false,
+      });
+
+      if (!resetRecord) {
+        throw new HttpException('Invalid or expired reset token', HttpStatus.BAD_REQUEST);
+      }
+
+      if (new Date() > resetRecord.expiresAt) {
+        throw new HttpException('Reset token has expired', HttpStatus.BAD_REQUEST);
+      }
+
+      // Find user and update password
+      const user = await this.accountModel.findOne({ email: resetRecord.email });
+      if (!user) {
+        throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+      }
+
+      // Hash new password
+      const hashedPassword = await this.hashPassword(newPassword);
+      user.password = hashedPassword;
+      await this.accountModel.save(user);
+
+      // Mark token as used
+      resetRecord.used = true;
+      await this.passwordResetModel.save(resetRecord);
+
+      // Invalidate all existing sessions for security
+      await this.refreshTokenModel.deleteMany({ accountId: user._id });
+      await this.accessTokenModel.deleteMany({ accountId: user._id });
+
+      this.logger.log(`Password reset successful for user: ${user.email}`);
+
+      return { message: 'Password reset successfully' };
+    } catch (error) {
+      this.logger.error(`Error resetting password: ${error.message}`);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Error resetting password',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Change password (for authenticated users)
+   */
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<{ message: string }> {
+    try {
+      const user = await this.accountModel.findOne({ _id: userId });
+      if (!user) {
+        throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+      }
+
+      if (!user.password) {
+        throw new HttpException(
+          'Cannot change password for OAuth users',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // Verify current password
+      const isValid = await this.validatePassword(currentPassword, user.password);
+      if (!isValid) {
+        throw new HttpException('Current password is incorrect', HttpStatus.BAD_REQUEST);
+      }
+
+      // Hash and save new password
+      const hashedPassword = await this.hashPassword(newPassword);
+      user.password = hashedPassword;
+      await this.accountModel.save(user);
+
+      // Invalidate all existing sessions
+      await this.refreshTokenModel.deleteMany({ accountId: userId });
+      await this.accessTokenModel.deleteMany({ accountId: userId });
+
+      this.logger.log(`Password changed for user: ${user.email}`);
+
+      return { message: 'Password changed successfully' };
+    } catch (error) {
+      this.logger.error(`Error changing password: ${error.message}`);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Error changing password',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

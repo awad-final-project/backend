@@ -21,6 +21,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const { email, password } = data;
+    // Direct validation - không cần LocalStrategy
     const result = await this.authService.loginUser(email, password);
     
     // If using cookie authentication, set httpOnly cookie
@@ -117,5 +118,37 @@ export class AuthController {
     @CurrentUser() user: { userId: string; email: string; username: string },
   ) {
     return this.authService.getUserInfo(user.userId);
+  }
+
+  @Post('password/request-reset')
+  async requestPasswordReset(@Body('email') email: string) {
+    if (!email) {
+      throw new Error('Email is required');
+    }
+    return this.authService.requestPasswordReset(email);
+  }
+
+  @Post('password/reset')
+  async resetPassword(
+    @Body('token') token: string,
+    @Body('newPassword') newPassword: string,
+  ) {
+    if (!token || !newPassword) {
+      throw new Error('Token and new password are required');
+    }
+    return this.authService.resetPassword(token, newPassword);
+  }
+
+  @Post('password/change')
+  @UseGuards(JwtAuthGuard)
+  async changePassword(
+    @CurrentUser() user: { userId: string },
+    @Body('currentPassword') currentPassword: string,
+    @Body('newPassword') newPassword: string,
+  ) {
+    if (!currentPassword || !newPassword) {
+      throw new Error('Current password and new password are required');
+    }
+    return this.authService.changePassword(user.userId, currentPassword, newPassword);
   }
 }
