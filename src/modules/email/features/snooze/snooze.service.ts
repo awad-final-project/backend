@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EmailModel } from '@database/models';
 import { IEmailDetail } from '@email/common/interfaces';
+import { isValidObjectId } from 'mongoose';
 
 @Injectable()
 export class SnoozeService {
@@ -72,11 +73,16 @@ export class SnoozeService {
     }
 
     // Try to find existing email in DB (for both local and Gmail emails)
+    const snoozeOrConditions: any[] = [
+      { gmailMessageId: emailId }, // Gmail: Gmail message ID
+    ];
+    
+    if (isValidObjectId(emailId)) {
+      snoozeOrConditions.unshift({ _id: emailId }); // Local mail: MongoDB ObjectID
+    }
+    
     let email = await this.emailModel.findOne({
-      $or: [
-        { _id: emailId }, // Local mail: MongoDB ObjectID
-        { gmailMessageId: emailId }, // Gmail: Gmail message ID
-      ],
+      $or: snoozeOrConditions,
       accountId: userId,
     });
 

@@ -6,6 +6,7 @@ import { AiService } from './ai.service';
 import { EmailModel } from '@database/models';
 import { EmailProviderFactory } from '@email/providers/email-provider.factory';
 import { SyncService } from '@email/features/sync/sync.service';
+import { isValidObjectId } from 'mongoose';
 
 @ApiTags('Email - AI')
 @ApiBearerAuth()
@@ -29,12 +30,18 @@ export class AiController {
     @Param('emailId') emailId: string,
   ) {
     // Try to get cached summary from database first
+    // Build query conditionally - only include _id if emailId is valid ObjectId
+    const orConditions: any[] = [
+      { gmailMessageId: emailId }, // Gmail: Gmail message ID
+      { imapMessageId: emailId }, // IMAP: IMAP message ID
+    ];
+    
+    if (isValidObjectId(emailId)) {
+      orConditions.unshift({ _id: emailId }); // Local mail: MongoDB ObjectID
+    }
+    
     const dbEmail = await this.emailModel.findOne({
-      $or: [
-        { _id: emailId }, // Local mail: MongoDB ObjectID
-        { gmailMessageId: emailId }, // Gmail: Gmail message ID
-        { imapMessageId: emailId }, // IMAP: IMAP message ID
-      ],
+      $or: orConditions,
       accountId: user.userId,
     });
 
@@ -66,12 +73,17 @@ export class AiController {
     });
 
     // Update database with summary
+    const updateOrConditions: any[] = [
+      { gmailMessageId: emailId },
+      { imapMessageId: emailId },
+    ];
+    
+    if (isValidObjectId(emailId)) {
+      updateOrConditions.unshift({ _id: emailId });
+    }
+    
     const updatedEmail = await this.emailModel.findOne({
-      $or: [
-        { _id: emailId },
-        { gmailMessageId: emailId },
-        { imapMessageId: emailId },
-      ],
+      $or: updateOrConditions,
       accountId: user.userId,
     });
 

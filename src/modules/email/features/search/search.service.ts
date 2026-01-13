@@ -1,7 +1,7 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
-import { Model } from 'mongoose';
+import { Model, isValidObjectId } from 'mongoose';
 import { EmailModel } from '@database/models';
 import { Email, EmailDocument } from '@database/schemas/email.schema';
 import Fuse from 'fuse.js';
@@ -377,11 +377,16 @@ export class SearchService {
     }
 
     // Find or create DB record
+    const embeddingOrConditions: any[] = [
+      { gmailMessageId: emailId },
+    ];
+    
+    if (isValidObjectId(emailId)) {
+      embeddingOrConditions.unshift({ _id: emailId });
+    }
+    
     let email = await this.emailModel.findOne({
-      $or: [
-        { _id: emailId },
-        { gmailMessageId: emailId },
-      ],
+      $or: embeddingOrConditions,
       accountId: userId,
     });
 

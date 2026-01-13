@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { EmailModel } from '@database/models';
 import { EmailProviderFactory } from '@email/providers/email-provider.factory';
 import { generatePreview } from '@email/common/utils/email.utils';
+import { isValidObjectId } from 'mongoose';
 
 /**
  * Email Sync Service
@@ -29,12 +30,18 @@ export class SyncService {
   ): Promise<void> {
     try {
       // Check if email already exists in DB
+      // Only query _id if emailId is valid ObjectId (to avoid CastError)
+      const syncOrConditions: any[] = [
+        { gmailMessageId: emailId },
+        { imapMessageId: emailId },
+      ];
+      
+      if (isValidObjectId(emailId)) {
+        syncOrConditions.unshift({ _id: emailId });
+      }
+      
       const existing = await this.emailModel.findOne({
-        $or: [
-          { _id: emailId },
-          { gmailMessageId: emailId },
-          { imapMessageId: emailId },
-        ],
+        $or: syncOrConditions,
         accountId: userId,
       });
 
