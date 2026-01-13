@@ -74,10 +74,8 @@ export class HttpLoggingInterceptor implements NestInterceptor {
     const startTime = Date.now();
 
     // Log incoming request
-    this.logger.log('Incoming Request', {
+    this.logger.log(`Incoming ${method} ${url}`, {
       requestId,
-      method,
-      url,
       clientIp,
       userAgent,
       query: Object.keys(query).length > 0 ? query : undefined,
@@ -97,7 +95,7 @@ export class HttpLoggingInterceptor implements NestInterceptor {
         const statusCode = response.statusCode;
 
         // Log successful response
-        this.logger.log('Request Completed', {
+        this.logger.log(`${method} ${url} ${statusCode} - ${duration}ms`, {
           requestId,
           method,
           url,
@@ -118,10 +116,8 @@ export class HttpLoggingInterceptor implements NestInterceptor {
         const duration = Date.now() - startTime;
 
         // Log error response
-        this.logger.error('Request Failed', error.stack, {
+        this.logger.error(`${method} ${url} FAILED - ${duration}ms`, error.stack, {
           requestId,
-          method,
-          url,
           duration: `${duration}ms`,
           error: {
             name: error.name,

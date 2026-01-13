@@ -35,11 +35,12 @@ export class GmailProviderService implements IEmailProvider {
 
   /**
    * Get authenticated Gmail client for user with automatic token refresh
+   * Proactively refreshes token if it's expired or about to expire
    */
-  private async getGmailClient(userId: string) {
+  private async getGmailClient(userId: string, forceRefresh: boolean = false) {
     const user = await this.accountModel.findOne({ _id: userId });
-    if (!user || !user.googleAccessToken) {
-      this.logger.warn(`No Google access token found for user ${userId}`);
+    if (!user || !user.googleRefreshToken) {
+      this.logger.warn(`No Google refresh token found for user ${userId}`);
       return null;
     }
 
@@ -49,21 +50,77 @@ export class GmailProviderService implements IEmailProvider {
       this.configService.get('GOOGLE_CALLBACK_URL'),
     );
 
+    // Check if token needs refresh (expired or expires in less than 5 minutes)
+    const now = new Date();
+    const tokenExpiry = user.googleTokenExpiry ? new Date(user.googleTokenExpiry) : null;
+    const needsRefresh = forceRefresh || 
+                        !user.googleAccessToken || 
+                        !tokenExpiry || 
+                        (tokenExpiry.getTime() - now.getTime()) < 5 * 60 * 1000; // 5 minutes buffer
+
+    if (needsRefresh && user.googleRefreshToken) {
+      this.logger.log(`Proactively refreshing Google token for user ${userId}`);
+      oauth2Client.setCredentials({
+        refresh_token: user.googleRefreshToken,
+      });
+
+      try {
+        // Force refresh the access token
+        const { credentials } = await oauth2Client.refreshAccessToken();
+        
+        if (credentials.access_token) {
+          user.googleAccessToken = credentials.access_token;
+          
+          // Calculate expiry time (Google tokens typically last 1 hour)
+          const expiryTime = new Date();
+          if (credentials.expiry_date) {
+            expiryTime.setTime(credentials.expiry_date);
+          } else {
+            // Default to 1 hour if not provided
+            expiryTime.setTime(expiryTime.getTime() + 3600 * 1000);
+          }
+          user.googleTokenExpiry = expiryTime;
+          
+          this.logger.log(`Token refreshed for user ${userId}, expires at ${expiryTime.toISOString()}`);
+        }
+        
+        if (credentials.refresh_token) {
+          user.googleRefreshToken = credentials.refresh_token;
+        }
+        
+        await this.accountModel.save(user);
+      } catch (error) {
+        this.logger.error(`Failed to refresh token for user ${userId}: ${error.message}`);
+        throw new Error('Failed to refresh Google access token. Please re-authenticate.');
+      }
+    } else if (tokenExpiry) {
+      const minutesLeft = Math.floor((tokenExpiry.getTime() - now.getTime()) / 60000);
+      this.logger.debug(`Google token for user ${userId} valid for ${minutesLeft} more minutes`);
+    }
+
     oauth2Client.setCredentials({
       access_token: user.googleAccessToken,
       refresh_token: user.googleRefreshToken,
     });
 
-    // Set up token refresh handler
+    // Set up token refresh handler for automatic refresh during API calls
     oauth2Client.on('tokens', async (tokens) => {
-      this.logger.log(`Tokens refreshed for user ${userId}`);
+      this.logger.log(`Tokens auto-refreshed during API call for user ${userId}`);
       if (tokens.access_token) {
-        // Update the access token in database
         user.googleAccessToken = tokens.access_token;
+        
+        // Update expiry time
+        const expiryTime = new Date();
+        if (tokens.expiry_date) {
+          expiryTime.setTime(tokens.expiry_date);
+        } else {
+          expiryTime.setTime(expiryTime.getTime() + 3600 * 1000);
+        }
+        user.googleTokenExpiry = expiryTime;
+        
         await this.accountModel.save(user);
       }
       if (tokens.refresh_token) {
-        // Update refresh token if a new one is provided
         user.googleRefreshToken = tokens.refresh_token;
         await this.accountModel.save(user);
       }

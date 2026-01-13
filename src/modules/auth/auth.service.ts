@@ -262,24 +262,34 @@ export class AuthService {
 
   async refreshToken(refreshToken: string, rotateToken: boolean = false) {
     try {
+      this.logger.log(`Attempting to refresh token...`);
       const tokenDoc = await this.refreshTokenModel.findOne({
         token: refreshToken,
       });
 
       if (!tokenDoc) {
+        this.logger.warn(`Refresh token not found in database`);
         throw new HttpException('Invalid refresh token', HttpStatus.UNAUTHORIZED);
       }
 
-      if (new Date() > tokenDoc.expiresAt) {
+      const now = new Date();
+      const expiresAt = tokenDoc.expiresAt;
+      if (now > expiresAt) {
+        this.logger.warn(`Refresh token expired. Expires: ${expiresAt}, Now: ${now}`);
         await this.refreshTokenModel.deleteMany({ _id: tokenDoc._id });
         throw new HttpException('Refresh token expired', HttpStatus.UNAUTHORIZED);
       }
 
+      const timeLeft = Math.floor((expiresAt.getTime() - now.getTime()) / 1000 / 60 / 60);
+      this.logger.log(`Refresh token valid. Time left: ${timeLeft} hours`);
+
       const user = await this.accountModel.findOne({ _id: tokenDoc.accountId });
       if (!user) {
+        this.logger.error(`User not found for token. AccountId: ${tokenDoc.accountId}`);
         throw new HttpException('User not found', HttpStatus.NOT_FOUND);
       }
 
+      this.logger.log(`Generating new access token for user: ${user.email}`);
       const newAccessToken = await this.generateAccessToken(
         user._id as string,
         user.email,
@@ -294,6 +304,7 @@ export class AuthService {
 
       // Optionally rotate refresh token for better security
       if (rotateToken) {
+        this.logger.log(`Rotating refresh token for user: ${user.email}`);
         const newRefreshToken = this.generateRefreshToken();
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + this.REFRESH_TOKEN_EXPIRY_DAYS);
@@ -308,12 +319,14 @@ export class AuthService {
           expiresAt,
         });
 
+        this.logger.log(`Token refresh successful with rotation`);
         return { accessToken: newAccessToken, refreshToken: newRefreshToken };
       }
 
+      this.logger.log(`Token refresh successful`);
       return { accessToken: newAccessToken };
     } catch (error) {
-      this.logger.error(error);
+      this.logger.error(`Token refresh failed: ${error.message}`);
       if (error instanceof HttpException) {
         throw error;
       }
@@ -406,6 +419,10 @@ export class AuthService {
     refreshToken?: string;
   }) {
     try {
+      // Calculate Google token expiry (Google tokens last 1 hour)
+      const googleTokenExpiry = new Date();
+      googleTokenExpiry.setTime(googleTokenExpiry.getTime() + 3600 * 1000); // 1 hour
+      
       // Check if user exists with googleId
       let user = await this.accountModel.findOne({ googleId: googleProfile.googleId });
 
@@ -418,6 +435,7 @@ export class AuthService {
           user.googleId = googleProfile.googleId;
           user.authProvider = 'google';
           user.googleAccessToken = googleProfile.accessToken;
+          user.googleTokenExpiry = googleTokenExpiry;
           user.picture = googleProfile.picture;
           if (googleProfile.refreshToken) {
             user.googleRefreshToken = googleProfile.refreshToken;
@@ -434,12 +452,14 @@ export class AuthService {
             role: 'user',
             googleAccessToken: googleProfile.accessToken,
             googleRefreshToken: googleProfile.refreshToken,
+            googleTokenExpiry: googleTokenExpiry,
             picture: googleProfile.picture,
           });
         }
       } else {
         // Update tokens and picture for existing user
         user.googleAccessToken = googleProfile.accessToken;
+        user.googleTokenExpiry = googleTokenExpiry;
         user.picture = googleProfile.picture;
         if (googleProfile.refreshToken) {
           user.googleRefreshToken = googleProfile.refreshToken;
@@ -447,10 +467,10 @@ export class AuthService {
         await this.accountModel.save(user);
       }
 
-      // Generate tokens
+      // Generate JWT tokens for application authentication
 
       // Generate tokens
-      const accessToken = await this.generateAccessToken(
+      this.logger.log(`Generating JWT tokens for Google user: ${user.email}`);\n      const accessToken = await this.generateAccessToken(
         user._id as string,
         user.email,
         user.username,
@@ -461,7 +481,7 @@ export class AuthService {
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + this.REFRESH_TOKEN_EXPIRY_DAYS);
 
-      await this.refreshTokenModel.save({
+      this.logger.log(`Saving refresh token for Google user: ${user.email}, expires: ${expiresAt.toISOString()}`);\n      await this.refreshTokenModel.save({
         token: refreshToken,
         accountId: user._id as string,
         expiresAt,
@@ -472,7 +492,7 @@ export class AuthService {
         accountId: user._id as string,
       });
 
-      return {
+      this.logger.log(`Google authentication successful for: ${user.email}`);\n      return {
         accessToken,
         refreshToken,
         email: user.email,
