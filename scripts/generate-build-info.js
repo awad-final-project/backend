@@ -11,14 +11,23 @@ const { execSync } = require('child_process');
 
 function exec(command) {
   try {
-    return execSync(command, { encoding: 'utf8' }).trim();
+    return execSync(command, { encoding: 'utf8', stdio: 'pipe' }).trim();
   } catch (error) {
     return 'unknown';
   }
 }
 
+// Read package.json for version
+let packageJson = { version: '1.0.0' };
+try {
+  const packageJsonPath = path.join(__dirname, '..', 'package.json');
+  packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+} catch (error) {
+  console.warn('Warning: Could not read package.json, using defaults');
+}
+
 const buildInfo = {
-  version: process.env.npm_package_version || '1.0.0',
+  version: packageJson.version || '1.0.0',
   buildTime: new Date().toISOString(),
   environment: process.env.NODE_ENV || 'development',
   git: {
@@ -32,12 +41,18 @@ const buildInfo = {
   },
   deployment: {
     deployedAt: new Date().toISOString(),
-    deployedBy: process.env.USER || process.env.USERNAME || 'unknown',
+    deployedBy: process.env.USER || process.env.USERNAME || 'docker',
   },
 };
 
-const outputPath = path.join(__dirname, 'build-info.json');
-fs.writeFileSync(outputPath, JSON.stringify(buildInfo, null, 2));
-
-console.log('✅ Build info generated successfully!');
-console.log(JSON.stringify(buildInfo, null, 2));
+const outputPath = path.join(__dirname, '..', 'build-info.json');
+try {
+  fs.writeFileSync(outputPath, JSON.stringify(buildInfo, null, 2));
+  console.log('✅ Build info generated successfully!');
+  console.log(JSON.stringify(buildInfo, null, 2));
+} catch (error) {
+  console.error('Warning: Could not write build-info.json:', error.message);
+  console.error('Build will continue without build info...');
+  // Don't fail the build
+  process.exit(0);
+}
