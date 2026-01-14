@@ -1146,8 +1146,8 @@ export class GmailProviderService implements IEmailProvider {
               from: extractEmailAddress(from),
               to: extractEmailAddress(to),
               subject,
-              sentAt: date ? new Date(date).toISOString() : new Date().toISOString(),
-              snippet: data.snippet || '',
+              sentAt: date ? new Date(date) : new Date(),
+              preview: data.snippet || '', // Gmail snippet as preview
               isRead: !data.labelIds?.includes('UNREAD'),
               isStarred: data.labelIds?.includes('STARRED'),
               hasAttachments: data.payload?.parts?.some((p) => p.filename) || false,
