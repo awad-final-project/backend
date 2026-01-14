@@ -3,9 +3,12 @@ import { Types } from 'mongoose';
 import { KanbanColumnModel, KanbanCardModel } from '@database/models';
 import { EmailProviderFactory } from '@email/providers/email-provider.factory';
 import { GmailProviderService } from '@email/providers/gmail/gmail-provider.service';
+import { ImapProviderService } from '@email/providers/imap/imap-provider.service';
+import { DatabaseProviderService } from '@email/providers/database/database-provider.service';
 import { CreateColumnDto, UpdateColumnDto, MoveCardDto } from '@app/libs/dtos';
 
 export interface KanbanBoard {
+  providerType: 'gmail' | 'imap' | 'database';
   columns: Array<{
     id: string;
     title: string;
@@ -155,6 +158,17 @@ export class KanbanService {
 
       const cards = await this.cardModel.findByAccountId(userId);
 
+      // Determine provider type for user
+      const provider = await this.providerFactory.getProvider(userId);
+      let providerType: 'gmail' | 'imap' | 'database' = 'database';
+      if (provider instanceof GmailProviderService) {
+        providerType = 'gmail';
+      } else if (provider instanceof ImapProviderService) {
+        providerType = 'imap';
+      } else if (provider instanceof DatabaseProviderService) {
+        providerType = 'database';
+      }
+
       // Group cards by column
       const cardsByColumn = cards.reduce((acc, card) => {
         if (!acc[card.columnId]) acc[card.columnId] = [];
@@ -167,6 +181,7 @@ export class KanbanService {
       }, {} as Record<string, any[]>);
 
       const board = {
+        providerType,
         columns: columns.map((col) => ({
           id: col.id,
           title: col.title,
@@ -375,39 +390,85 @@ export class KanbanService {
   }
 
   /**
-   * Sync card movement with Gmail labels
+   * Sync card movement with email provider labels
+   * - Gmail: Uses add/removeLabel methods with custom labels
+   * - Database: Uses updateLabels to store labels in MongoDB
+   * - IMAP: No label sync (IMAP doesn't support custom labels)
    */
   private async syncCardMovementWithGmail(
     userId: string,
     emailId: string,
-    oldLabel?: string,
-    newLabel?: string,
+    oldGmailLabel?: string,
+    newGmailLabel?: string,
   ) {
     try {
       const provider = await this.providerFactory.getProvider(userId);
       
-      // Only sync if using Gmail provider
-      if (!(provider instanceof GmailProviderService)) {
-        this.logger.debug('Not using Gmail provider, skipping label sync');
+      // Map system Gmail labels to custom labels
+      // INBOX, SENT, DRAFT, SPAM, TRASH, etc. are system labels - don't touch them
+      // TODO, IN_PROGRESS, DONE, SNOOZED are custom labels we manage
+      const labelMap: Record<string, string> = {
+        'TODO': 'todo',
+        'IN_PROGRESS': 'in-progress',
+        'DONE': 'done',
+        'SNOOZED': 'snoozed',
+      };
+
+      // Get the actual label names to use
+      const oldLabel = oldGmailLabel && labelMap[oldGmailLabel] ? labelMap[oldGmailLabel] : undefined;
+      const newLabel = newGmailLabel && labelMap[newGmailLabel] ? labelMap[newGmailLabel] : undefined;
+
+      // Gmail Provider: Use add/removeLabel methods
+      if (provider instanceof GmailProviderService) {
+        const gmailProvider = provider as any;
+
+        // Remove old label (only if it's a custom label, not system label like INBOX)
+        if (oldLabel && gmailProvider.removeLabel) {
+          await gmailProvider.removeLabel(userId, emailId, oldLabel);
+          this.logger.debug(`[Gmail] Removed label: ${oldLabel}`);
+        }
+
+        // Add new label (only if it's a custom label)
+        if (newLabel && gmailProvider.addLabel) {
+          await gmailProvider.addLabel(userId, emailId, newLabel);
+          this.logger.debug(`[Gmail] Added label: ${newLabel}`);
+        }
         return;
       }
 
-      const gmailProvider = provider as any;
+      // Database Provider: Use updateLabels to store in MongoDB
+      if (provider instanceof DatabaseProviderService && provider.updateLabels) {
+        // Get current email to read existing labels
+        const email = await provider.getEmailById(userId, emailId);
+        if (!email) {
+          this.logger.warn(`Email ${emailId} not found for label update`);
+          return;
+        }
 
-      // Remove old label
-      if (oldLabel && gmailProvider.removeLabel) {
-        await gmailProvider.removeLabel(userId, emailId, oldLabel);
-        this.logger.debug(`Removed Gmail label: ${oldLabel}`);
+        let labels = email.labels || [];
+
+        // Remove old label
+        if (oldLabel) {
+          labels = labels.filter(l => l !== oldLabel);
+          this.logger.debug(`[Database] Removed label: ${oldLabel}`);
+        }
+
+        // Add new label
+        if (newLabel && !labels.includes(newLabel)) {
+          labels.push(newLabel);
+          this.logger.debug(`[Database] Added label: ${newLabel}`);
+        }
+
+        // Update labels in database
+        await provider.updateLabels(userId, emailId, labels);
+        return;
       }
 
-      // Add new label
-      if (newLabel && gmailProvider.addLabel) {
-        await gmailProvider.addLabel(userId, emailId, newLabel);
-        this.logger.debug(`Added Gmail label: ${newLabel}`);
-      }
+      // IMAP Provider: No label support, just log
+      this.logger.debug(`[IMAP] Label sync not supported, card movement tracked in database only`);
     } catch (error) {
       // Don't fail the whole operation if label sync fails
-      this.logger.warn(`Failed to sync Gmail labels: ${error.message}`);
+      this.logger.warn(`Failed to sync labels: ${error.message}`);
     }
   }
 

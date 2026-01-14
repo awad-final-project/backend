@@ -17,6 +17,7 @@ import { AiModule } from '@email/features/ai/ai.module';
 import { KanbanModule } from '@email/features/kanban/kanban.module';
 import { SearchModule } from '@email/features/search/search.module';
 import { SyncModule } from '@email/features/sync/sync.module';
+import { TokenRefreshModule } from '@email/features/token-refresh/token-refresh.module';
 
 /**
  * Email Module
@@ -41,6 +42,7 @@ import { SyncModule } from '@email/features/sync/sync.module';
     KanbanModule,
     SearchModule,
     SyncModule,
+    TokenRefreshModule,
   ],
   exports: [
     EmailProvidersModule,
@@ -57,6 +59,7 @@ import { SyncModule } from '@email/features/sync/sync.module';
     KanbanModule,
     SearchModule,
     SyncModule,
+    TokenRefreshModule,
   ],
 })
 export class EmailModule {}
