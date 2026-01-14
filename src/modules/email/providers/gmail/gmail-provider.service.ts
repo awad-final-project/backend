@@ -130,8 +130,23 @@ export class GmailProviderService implements IEmailProvider {
   }
 
   async isAvailable(userId: string): Promise<boolean> {
-    const gmail = await this.getGmailClient(userId);
-    return gmail !== null;
+    try {
+      const gmail = await this.getGmailClient(userId);
+      if (!gmail) {
+        return false;
+      }
+
+      // Actually test Gmail API access by making a simple API call
+      // This verifies the token has Gmail scope permissions
+      await gmail.users.labels.list({ userId: 'me' });
+      
+      this.logger.log(`Gmail API is available for user ${userId}`);
+      return true;
+    } catch (error) {
+      // If we get permission error or any API error, Gmail is not available
+      this.logger.warn(`Gmail API not available for user ${userId}: ${error.message}`);
+      return false;
+    }
   }
 
   async getMailboxes(userId: string): Promise<IMailbox[]> {

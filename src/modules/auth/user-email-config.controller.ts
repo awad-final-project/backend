@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { SaveEmailConfigDto, EmailConfigResponseDto } from './dto/email-config.dto';
 import { AccountModel } from '@database/models';
 import { DynamicMailService } from '../mailer/dynamic-mail.service';
+import { ImapProviderService } from '../email/providers/imap/imap-provider.service';
 
 @ApiTags('User Email Configuration')
 @ApiBearerAuth()
@@ -16,6 +17,7 @@ export class UserEmailConfigController {
     private readonly authService: AuthService,
     private readonly accountModel: AccountModel,
     private readonly dynamicMailService: DynamicMailService,
+    private readonly imapProvider: ImapProviderService,
   ) {}
 
   @Post()
@@ -54,6 +56,9 @@ export class UserEmailConfigController {
           emailConfigUpdatedAt: new Date(),
         },
       );
+
+      // Clear IMAP provider cache to force re-verification next time
+      this.imapProvider.clearCache(user.userId);
 
       return {
         email: config.email,
@@ -112,6 +117,9 @@ export class UserEmailConfigController {
         },
       },
     );
+
+    // Clear IMAP provider cache
+    this.imapProvider.clearCache(user.userId);
 
     return { message: 'Email configuration removed successfully' };
   }

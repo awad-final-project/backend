@@ -20,6 +20,8 @@ import { generatePreview } from '@email/common/utils/email.utils';
 @Injectable()
 export class ImapProviderService implements IEmailProvider {
   private readonly logger = new Logger(ImapProviderService.name);
+  private readonly credentialCache = new Map<string, { valid: boolean; timestamp: number }>();
+  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
   constructor(
     private readonly accountModel: AccountModel,
@@ -35,21 +37,44 @@ export class ImapProviderService implements IEmailProvider {
     const user = await this.accountModel.findOne({ _id: userId });
     
     // Check if user has email and password for IMAP/SMTP
-    if (user?.imapEmail && user?.imapPassword) {
-      try {
-        // Verify credentials
-        const isValid = await this.dynamicMailService.verifyCredentials(
-          user.imapEmail,
-          user.imapPassword,
-        );
-        return isValid;
-      } catch (error) {
-        this.logger.warn(`IMAP credentials invalid for user ${userId}: ${error.message}`);
-        return false;
-      }
+    if (!user?.imapEmail || !user?.imapPassword) {
+      return false;
     }
-    
-    return false;
+
+    // Check cache first
+    const cached = this.credentialCache.get(userId);
+    if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL) {
+      this.logger.debug(`Using cached IMAP availability for user ${userId}: ${cached.valid}`);
+      return cached.valid;
+    }
+
+    // Verify credentials (only if not cached)
+    try {
+      const isValid = await this.dynamicMailService.verifyCredentials(
+        user.imapEmail,
+        user.imapPassword,
+        user.emailProvider || 'other',
+      );
+      
+      // Cache result
+      this.credentialCache.set(userId, {
+        valid: isValid,
+        timestamp: Date.now(),
+      });
+      
+      this.logger.log(`IMAP credentials verified for user ${userId}: ${isValid}`);
+      return isValid;
+    } catch (error) {
+      this.logger.warn(`IMAP credentials invalid for user ${userId}: ${error.message}`);
+      
+      // Cache negative result too (but with shorter TTL would be better for production)
+      this.credentialCache.set(userId, {
+        valid: false,
+        timestamp: Date.now(),
+      });
+      
+      return false;
+    }
   }
 
   async getMailboxes(userId: string): Promise<IMailbox[]> {
@@ -299,5 +324,14 @@ export class ImapProviderService implements IEmailProvider {
       starred: 'INBOX', // Starred is a flag, not a mailbox
     };
     return mapping[folder.toLowerCase()] || 'INBOX';
+  }
+
+  /**
+   * Clear credential cache for a user
+   * Call this when user updates their email config
+   */
+  clearCache(userId: string): void {
+    this.credentialCache.delete(userId);
+    this.logger.log(`Cleared IMAP cache for user ${userId}`);
   }
 }

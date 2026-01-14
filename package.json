@@ -8,8 +8,10 @@
   "scripts": {
     "prebuild": "node scripts/generate-build-info.js",
     "build": "nest build",
+    "build:info": "node scripts/generate-build-info.js",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "NODE_OPTIONS='--max-old-space-size=512' nest start",
+    "prestart:dev": "node scripts/generate-build-info.js",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "NODE_OPTIONS='--max-old-space-size=512' node dist/src/main.js",

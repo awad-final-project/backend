@@ -15,6 +15,7 @@ import {
 import { GoogleStrategy } from './strategies/google.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { MailModule } from '../mailer';
+import { EmailProvidersModule } from '../email/providers/email-providers.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { MailModule } from '../mailer';
     PasswordResetModule,
     DatabaseModule,
     MailModule,
+    EmailProvidersModule,
   ],
   controllers: [AuthController, UserEmailConfigController],
   providers: [AuthService, GoogleStrategy, LocalStrategy],
