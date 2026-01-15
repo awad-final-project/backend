@@ -415,8 +415,14 @@ export class KanbanService {
       };
 
       // Get the actual label names to use
-      const oldLabel = oldGmailLabel && labelMap[oldGmailLabel] ? labelMap[oldGmailLabel] : undefined;
-      const newLabel = newGmailLabel && labelMap[newGmailLabel] ? labelMap[newGmailLabel] : undefined;
+      // If gmailLabel is in labelMap, use mapped value
+      // Otherwise, use the gmailLabel directly (for custom columns)
+      const oldLabel = oldGmailLabel 
+        ? (labelMap[oldGmailLabel] || oldGmailLabel.toLowerCase()) 
+        : undefined;
+      const newLabel = newGmailLabel 
+        ? (labelMap[newGmailLabel] || newGmailLabel.toLowerCase()) 
+        : undefined;
 
       // Gmail Provider: Use add/removeLabel methods
       if (provider instanceof GmailProviderService) {
