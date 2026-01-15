@@ -33,10 +33,13 @@ ENV NODE_ENV=production
 
 # Copy package files and install production dependencies fresh
 COPY package.json pnpm-lock.yaml* ./
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile --ignore-scripts
 
 # Copy built application
 COPY --from=build /app/dist /app/dist
+
+# Copy build-info.json for version information
+COPY --from=build /app/build-info.json /app/build-info.json
 
 # Expose port (default 5000, but can be overridden by PORT env)
 EXPOSE 5000

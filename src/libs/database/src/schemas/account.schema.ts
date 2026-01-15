@@ -13,6 +13,7 @@ type IAccount = {
   googleTokenExpiry?: Date;
   imapEmail?: string;
   imapPassword?: string;
+  emailProvider?: string;
   picture?: string;
   authProvider?: 'local' | 'google';
   role?: string;
@@ -53,6 +54,9 @@ export class Account extends Document implements IAccount {
 
   @Prop()
   imapPassword?: string;
+
+  @Prop()
+  emailProvider?: string;
 
   @Prop()
   picture?: string;

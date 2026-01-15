@@ -130,8 +130,23 @@ export class GmailProviderService implements IEmailProvider {
   }
 
   async isAvailable(userId: string): Promise<boolean> {
-    const gmail = await this.getGmailClient(userId);
-    return gmail !== null;
+    try {
+      const gmail = await this.getGmailClient(userId);
+      if (!gmail) {
+        return false;
+      }
+
+      // Actually test Gmail API access by making a simple API call
+      // This verifies the token has Gmail scope permissions
+      await gmail.users.labels.list({ userId: 'me' });
+      
+      this.logger.log(`Gmail API is available for user ${userId}`);
+      return true;
+    } catch (error) {
+      // If we get permission error or any API error, Gmail is not available
+      this.logger.warn(`Gmail API not available for user ${userId}: ${error.message}`);
+      return false;
+    }
   }
 
   async getMailboxes(userId: string): Promise<IMailbox[]> {
@@ -444,17 +459,21 @@ export class GmailProviderService implements IEmailProvider {
     }
 
     try {
+      // Encode subject line properly for UTF-8 (RFC 2047)
+      const encodedSubject = Buffer.from(subject, 'utf-8').toString('utf-8');
+      
       // Build email content
       const boundary = '----=_Part_' + Date.now();
       let emailContent = [
         `From: ${userEmail}`,
         `To: ${to}`,
-        `Subject: ${subject}`,
+        `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,
         `MIME-Version: 1.0`,
         `Content-Type: multipart/mixed; boundary="${boundary}"`,
         '',
         `--${boundary}`,
         `Content-Type: text/html; charset=UTF-8`,
+        `Content-Transfer-Encoding: quoted-printable`,
         '',
         body,
       ];
@@ -1061,5 +1080,111 @@ export class GmailProviderService implements IEmailProvider {
     const month = `${date.getMonth() + 1}`.padStart(2, '0');
     const day = `${date.getDate()}`.padStart(2, '0');
     return `${year}/${month}/${day}`;
+  }
+
+  /**
+   * Search emails using Gmail's native search API
+   * Supports Gmail query operators for powerful searching
+   * https://support.google.com/mail/answer/7190?hl=en
+   */
+  async searchGmail(
+    userId: string,
+    query: string,
+    maxResults: number = 50,
+  ): Promise<IEmailPreview[]> {
+    const gmail = await this.getGmailClient(userId);
+    if (!gmail) {
+      this.logger.error(`Gmail client not available for user ${userId}`);
+      return [];
+    }
+
+    try {
+      this.logger.debug(`Gmail native search for user ${userId}: "${query}"`);
+
+      // Use Gmail's native search - supports all Gmail operators
+      const res = await gmail.users.messages.list({
+        userId: 'me',
+        q: query, // Gmail query string
+        maxResults: Math.min(maxResults, 100), // Gmail API max is 500
+      });
+
+      const messages = res.data.messages || [];
+      this.logger.debug(`Gmail search found ${messages.length} results`);
+
+      // Fetch full message details for preview
+      const emails: IEmailPreview[] = await Promise.all(
+        messages.map(async (msg) => {
+          try {
+            const { data } = await gmail.users.messages.get({
+              userId: 'me',
+              id: msg.id,
+              format: 'metadata', // Only get metadata for speed
+              metadataHeaders: ['Subject', 'From', 'To', 'Date'],
+            });
+
+            const headers = data.payload?.headers || [];
+            const subject =
+              headers.find((h) => h.name === 'Subject')?.value || '(No Subject)';
+            const from = headers.find((h) => h.name === 'From')?.value || '';
+            const to = headers.find((h) => h.name === 'To')?.value || '';
+            const date = headers.find((h) => h.name === 'Date')?.value;
+
+            // Extract custom labels
+            const systemLabels = [
+              'INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'UNREAD',
+              'STARRED', 'IMPORTANT', 'CATEGORY_PERSONAL', 'CATEGORY_SOCIAL',
+              'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS',
+            ];
+            const allLabelIds = data.labelIds || [];
+            const customLabelIds = allLabelIds.filter(
+              (labelId) => !systemLabels.includes(labelId),
+            );
+
+            const customLabels = customLabelIds.map((labelId) => {
+              const labelName = this.getLabelNameFromCache(userId, labelId);
+              return labelName || labelId;
+            });
+
+            return {
+              id: data.id,
+              from: extractEmailAddress(from),
+              to: extractEmailAddress(to),
+              subject,
+              sentAt: date ? new Date(date) : new Date(),
+              preview: data.snippet || '', // Gmail snippet as preview
+              isRead: !data.labelIds?.includes('UNREAD'),
+              isStarred: data.labelIds?.includes('STARRED'),
+              hasAttachments: data.payload?.parts?.some((p) => p.filename) || false,
+              labels: customLabels,
+              folder: this.determineFolderFromLabels(data.labelIds || []),
+            };
+          } catch (error) {
+            this.logger.warn(`Failed to fetch message ${msg.id}:`, error.message);
+            return null;
+          }
+        }),
+      );
+
+      // Filter out failed fetches
+      return emails.filter((e): e is IEmailPreview => e !== null);
+    } catch (error: any) {
+      this.logger.error(`Gmail search failed: ${error.message}`);
+      if (error.code === 401 || error.message?.includes('invalid_grant')) {
+        throw new Error('Gmail authentication expired. Please re-authenticate with Google.');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Determine folder from Gmail labels
+   */
+  private determineFolderFromLabels(labelIds: string[]): string {
+    if (labelIds.includes('TRASH')) return 'trash';
+    if (labelIds.includes('SPAM')) return 'spam';
+    if (labelIds.includes('DRAFT')) return 'drafts';
+    if (labelIds.includes('SENT')) return 'sent';
+    if (labelIds.includes('INBOX')) return 'inbox';
+    return 'archive';
   }
 }

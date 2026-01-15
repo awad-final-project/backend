@@ -3,12 +3,17 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { EmailModel } from '@database/models';
 import { IEmailDetail } from '@email/common/interfaces';
 import { isValidObjectId } from 'mongoose';
+import { EmailProviderFactory } from '@email/providers/email-provider.factory';
+import { GmailProviderService } from '@email/providers/gmail/gmail-provider.service';
 
 @Injectable()
 export class SnoozeService {
   private readonly logger = new Logger(SnoozeService.name);
 
-  constructor(private readonly emailModel: EmailModel) {}
+  constructor(
+    private readonly emailModel: EmailModel,
+    private readonly providerFactory: EmailProviderFactory,
+  ) {}
 
   /**
    * Check for snoozed emails every minute and unsnooze them if time has passed
@@ -31,20 +36,26 @@ export class SnoozeService {
       this.logger.log(`Found ${emailsToUnsnooze.length} emails to unsnooze`);
 
       // Update all emails in bulk
-      const updatePromises = emailsToUnsnooze.map(email =>
-        this.emailModel.updateOne(
+      const updatePromises = emailsToUnsnooze.map(async (email) => {
+        // Sync with Gmail if it's a Gmail email
+        if (email.gmailMessageId) {
+          await this.syncGmailUnsnooze(email.accountId.toString(), email.gmailMessageId);
+        }
+        
+        return this.emailModel.updateOne(
           { _id: email._id },
           {
             $set: {
               isSnoozed: false,
               folder: 'inbox',
+              labels: (email.labels || []).filter(l => l !== 'snoozed'),
             },
             $unset: {
               snoozeUntil: '',
             },
           },
-        )
-      );
+        );
+      });
       
       await Promise.all(updatePromises);
       const result = { modifiedCount: emailsToUnsnooze.length };
@@ -100,7 +111,7 @@ export class SnoozeService {
             isSnoozed: true,
             snoozeUntil,
             snoozedAt: now,
-            folder: 'snoozed',
+            folder: 'archive', // Hide from inbox, use archive instead of 'snoozed'
             labels: updatedLabels,
           },
         },
@@ -120,12 +131,85 @@ export class SnoozeService {
         isSnoozed: true,
         snoozeUntil,
         snoozedAt: now,
-        folder: 'snoozed',
+        folder: 'archive', // Hide from inbox
         labels: updatedLabels,
       });
     }
 
+    // Sync with Gmail if it's a Gmail email
+    if (emailId && !isValidObjectId(emailId)) {
+      // Gmail message ID (not MongoDB ObjectID)
+      await this.syncGmailSnooze(userId, emailId);
+    } else if (email?.gmailMessageId) {
+      // MongoDB email with Gmail message ID
+      await this.syncGmailSnooze(userId, email.gmailMessageId);
+    }
+
     this.logger.log(`Email ${emailId} snoozed until ${snoozeUntil.toISOString()}`);
+  }
+
+  /**
+   * Sync snooze action with Gmail
+   * - Add custom label "snoozed"
+   * - Remove INBOX label (hide from inbox)
+   */
+  private async syncGmailSnooze(userId: string, gmailMessageId: string): Promise<void> {
+    try {
+      const provider = await this.providerFactory.getProvider(userId);
+      
+      if (!(provider instanceof GmailProviderService)) {
+        return; // Not a Gmail account
+      }
+
+      const gmailProvider = provider as any;
+      
+      // Add "snoozed" label (will create if not exists)
+      if (gmailProvider.addLabel) {
+        await gmailProvider.addLabel(userId, gmailMessageId, 'snoozed');
+        this.logger.debug(`[Gmail] Added snoozed label to ${gmailMessageId}`);
+      }
+
+      // Remove INBOX label
+      if (gmailProvider.removeLabel) {
+        await gmailProvider.removeLabel(userId, gmailMessageId, 'INBOX');
+        this.logger.debug(`[Gmail] Removed INBOX label from ${gmailMessageId}`);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to sync snooze with Gmail: ${error.message}`);
+      // Don't throw - allow snooze to succeed even if Gmail sync fails
+    }
+  }
+
+  /**
+   * Sync unsnooze action with Gmail
+   * - Remove custom label "snoozed"
+   * - Add INBOX label (return to inbox)
+   */
+  private async syncGmailUnsnooze(userId: string, gmailMessageId: string): Promise<void> {
+    try {
+      const provider = await this.providerFactory.getProvider(userId);
+      
+      if (!(provider instanceof GmailProviderService)) {
+        return; // Not a Gmail account
+      }
+
+      const gmailProvider = provider as any;
+      
+      // Remove "snoozed" label
+      if (gmailProvider.removeLabel) {
+        await gmailProvider.removeLabel(userId, gmailMessageId, 'snoozed');
+        this.logger.debug(`[Gmail] Removed snoozed label from ${gmailMessageId}`);
+      }
+
+      // Add INBOX label
+      if (gmailProvider.addLabel) {
+        await gmailProvider.addLabel(userId, gmailMessageId, 'INBOX');
+        this.logger.debug(`[Gmail] Added INBOX label to ${gmailMessageId}`);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to sync unsnooze with Gmail: ${error.message}`);
+      // Don't throw - allow unsnooze to succeed even if Gmail sync fails
+    }
   }
 
   /**
@@ -162,6 +246,11 @@ export class SnoozeService {
         },
       },
     );
+
+    // Sync with Gmail if it's a Gmail email
+    if (email.gmailMessageId) {
+      await this.syncGmailUnsnooze(userId, email.gmailMessageId);
+    }
 
     this.logger.log(`Email ${emailId} manually unsnoozed`);
   }

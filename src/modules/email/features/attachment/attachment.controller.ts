@@ -90,52 +90,8 @@ export class AttachmentController {
   }
 
   @Get(':attachmentId/download')
-  @ApiOperation({ summary: 'Download attachment file' })
-  async downloadAttachment(
-    @Param('attachmentId') attachmentId: string,
-    @Res() res: Response,
-  ) {
-    const result = await this.attachmentService.downloadAttachment(attachmentId);
-
-    res.setHeader('Content-Type', result.mimeType);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(result.filename)}"`,
-    );
-    res.setHeader('Content-Length', result.size);
-
-    if (result.storageType === 'DATABASE' && result.buffer) {
-      // Send buffer directly for database-stored files
-      res.send(result.buffer);
-    } else if (result.stream) {
-      // Pipe stream for S3-stored files
-      result.stream.pipe(res);
-    } else {
-      res.status(404).send('File not found');
-    }
-  }
-
-  @Get(':attachmentId/url')
-  @ApiOperation({ summary: 'Get signed download URL for attachment' })
-  async getDownloadUrl(
-    @Param('attachmentId') attachmentId: string,
-    @Query('expiresIn') expiresIn?: string,
-  ) {
-    const expires = expiresIn ? parseInt(expiresIn, 10) : 3600;
-    const url = await this.attachmentService.getDownloadUrl(attachmentId, expires);
-    return { url, expiresIn: expires };
-  }
-
-  @Delete(':attachmentId')
-  @ApiOperation({ summary: 'Delete an attachment' })
-  async deleteAttachment(@Param('attachmentId') attachmentId: string) {
-    await this.attachmentService.deleteAttachment(attachmentId);
-    return { message: 'Attachment deleted successfully' };
-  }
-
-  @Get(':attachmentId/download')
   @ApiOperation({ summary: 'Download attachment (unified for both database and email provider attachments)' })
-  async downloadUnifiedAttachment(
+  async downloadAttachment(
     @CurrentUser() user: { userId: string },
     @Param('attachmentId') attachmentId: string,
     @Query('emailId') emailId: string,
@@ -163,5 +119,23 @@ export class AttachmentController {
     } else {
       res.status(404).send('File not found');
     }
+  }
+
+  @Get(':attachmentId/url')
+  @ApiOperation({ summary: 'Get signed download URL for attachment' })
+  async getDownloadUrl(
+    @Param('attachmentId') attachmentId: string,
+    @Query('expiresIn') expiresIn?: string,
+  ) {
+    const expires = expiresIn ? parseInt(expiresIn, 10) : 3600;
+    const url = await this.attachmentService.getDownloadUrl(attachmentId, expires);
+    return { url, expiresIn: expires };
+  }
+
+  @Delete(':attachmentId')
+  @ApiOperation({ summary: 'Delete an attachment' })
+  async deleteAttachment(@Param('attachmentId') attachmentId: string) {
+    await this.attachmentService.deleteAttachment(attachmentId);
+    return { message: 'Attachment deleted successfully' };
   }
 }

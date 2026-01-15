@@ -46,8 +46,11 @@ export class SearchService {
   }
 
   /**
-   * Main search method that combines fuzzy, partial, and semantic search
-   * Now works with synced Gmail/IMAP emails
+   * Main search method that combines Gmail API search + local semantic search
+   * Strategy:
+   * 1. Gmail users: Use Gmail API search (real-time, typo-tolerant)
+   * 2. All users: Add semantic search on synced emails (meaning-based)
+   * 3. Database/IMAP: Fallback to local fuzzy search
    */
   async search(options: SearchOptions): Promise<SearchResult[]> {
     const { query, userId, folder, limit = 50, includeSemantic = true } = options;
@@ -57,53 +60,95 @@ export class SearchService {
     }
 
     try {
-      // Check if sync is needed (for Gmail/IMAP users)
-      const syncInProgress = this.syncService.isSyncInProgress(userId, folder);
-      if (!syncInProgress) {
-        // Trigger background sync if not already running
-        this.syncService.syncFolder(userId, folder || 'inbox', 50).catch((error) => {
-          this.logger.warn(`Background sync failed during search: ${error.message}`);
-        });
-      }
+      const provider = await this.providerFactory.getProvider(userId);
+      let results: SearchResult[] = [];
+      let gmailSearchUsed = false;
 
-      // Get all emails for the user from database (includes synced Gmail/IMAP emails)
-      const filter: any = { accountId: userId };
-      if (folder && folder !== 'all') {
-        if (folder === 'starred') {
-          filter.isStarred = true;
-          filter.folder = { $ne: 'trash' };
-        } else {
-          filter.folder = folder;
+      // Strategy 1: Gmail API native search (best for Gmail users)
+      if (provider.constructor.name === 'GmailProviderService' && (provider as any).searchGmail) {
+        try {
+          this.logger.log(`Using Gmail native search for query: "${query}"`);
+          
+          // Build Gmail query with smart enhancements
+          const gmailQuery = this.enhanceQueryForGmail(query, folder);
+          const gmailResults = await (provider as any).searchGmail(userId, gmailQuery, limit);
+          
+          // Convert to SearchResult format
+          results = gmailResults.map((email: any) => ({
+            email: email as any, // Gmail API result
+            relevanceScore: 85, // Gmail search is high quality
+            matchType: 'exact' as const,
+          }));
+          
+          gmailSearchUsed = true;
+          this.logger.log(`Gmail search found ${results.length} results`);
+        } catch (error) {
+          this.logger.warn(`Gmail search failed, falling back to local search: ${error.message}`);
         }
       }
 
-      const emails = await this.emailMongooseModel.find(filter).limit(1000).exec(); // Limit initial fetch
+      // Strategy 2: Local search (for non-Gmail or fallback)
+      if (results.length === 0) {
+        this.logger.log(`Using local database search for query: "${query}"`);
+        
+        // Check if sync is needed (for Gmail/IMAP users)
+        const syncInProgress = this.syncService.isSyncInProgress(userId, folder);
+        if (!syncInProgress) {
+          // Trigger background sync if not already running
+          this.syncService.syncFolder(userId, folder || 'inbox', 50).catch((error) => {
+            this.logger.warn(`Background sync failed during search: ${error.message}`);
+          });
+        }
 
-      if (emails.length === 0) {
-        return [];
+        // Get all emails for the user from database (includes synced Gmail/IMAP emails)
+        const filter: any = { accountId: userId };
+        if (folder && folder !== 'all') {
+          if (folder === 'starred') {
+            filter.isStarred = true;
+            filter.folder = { $ne: 'trash' };
+          } else {
+            filter.folder = folder;
+          }
+        }
+
+        const emails = await this.emailMongooseModel.find(filter).limit(1000).exec(); // Limit initial fetch
+
+        if (emails.length > 0) {
+          // 1. Exact and partial matches (highest priority)
+          const exactMatches = this.findExactMatches(emails, query);
+          results.push(...exactMatches);
+
+          // 2. Fuzzy matches (handles misspellings)
+          const fuzzyMatches = this.findFuzzyMatches(emails, query);
+          results.push(...fuzzyMatches);
+        }
       }
 
-      // Combine different search methods
-      const results: SearchResult[] = [];
-
-      // 1. Exact and partial matches (highest priority)
-      const exactMatches = this.findExactMatches(emails, query);
-      results.push(...exactMatches);
-
-      // 2. Fuzzy matches (handles misspellings)
-      const fuzzyMatches = this.findFuzzyMatches(emails, query);
-      results.push(...fuzzyMatches);
-
-      // 3. Semantic matches (if embeddings are available)
+      // Strategy 3: Semantic search (works for all users with synced + embedded data)
       let semanticSearchUsed = false;
       let semanticSearchError = false;
       if (includeSemantic && this.apiKey) {
         try {
-          const semanticMatches = await this.findSemanticMatches(emails, query);
-          results.push(...semanticMatches);
-          semanticSearchUsed = semanticMatches.length > 0;
+          // Get synced emails for semantic search
+          const filter: any = { accountId: userId };
+          if (folder && folder !== 'all') {
+            if (folder === 'starred') {
+              filter.isStarred = true;
+              filter.folder = { $ne: 'trash' };
+            } else {
+              filter.folder = folder;
+            }
+          }
+          
+          const emails = await this.emailMongooseModel.find(filter).limit(500).exec();
+          
+          if (emails.length > 0) {
+            const semanticMatches = await this.findSemanticMatches(emails, query);
+            results.push(...semanticMatches);
+            semanticSearchUsed = semanticMatches.length > 0;
+          }
         } catch (error) {
-          this.logger.warn('Semantic search failed, continuing with fuzzy/exact only:', error.message);
+          this.logger.warn('Semantic search failed, continuing without it:', error.message);
           semanticSearchError = true;
         }
       }
@@ -113,6 +158,7 @@ export class SearchService {
 
       // Attach metadata to results
       (uniqueResults as any).metadata = {
+        gmailSearchUsed,
         semanticSearchUsed,
         semanticSearchError,
         hasApiKey: !!this.apiKey,
@@ -130,6 +176,34 @@ export class SearchService {
         error.status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  /**
+   * Enhance query with Gmail-specific operators for better search
+   */
+  private enhanceQueryForGmail(query: string, folder?: string): string {
+    let gmailQuery = query;
+
+    // Add folder/label filters
+    if (folder && folder !== 'all') {
+      if (folder === 'inbox') {
+        gmailQuery += ' in:inbox';
+      } else if (folder === 'sent') {
+        gmailQuery += ' in:sent';
+      } else if (folder === 'drafts') {
+        gmailQuery += ' in:draft';
+      } else if (folder === 'trash') {
+        gmailQuery += ' in:trash';
+      } else if (folder === 'spam') {
+        gmailQuery += ' in:spam';
+      } else if (folder === 'starred') {
+        gmailQuery += ' is:starred';
+      } else if (folder === 'archive') {
+        gmailQuery += ' -in:inbox -in:trash -in:spam';
+      }
+    }
+
+    return gmailQuery.trim();
   }
 
   /**
@@ -179,13 +253,14 @@ export class SearchService {
   }
 
   /**
-   * Find fuzzy matches using Fuse.js and Levenshtein distance
+   * Find fuzzy matches using Fuse.js and improved Levenshtein distance
+   * Handles typos and common misspellings
    */
   private findFuzzyMatches(emails: EmailDocument[], query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const queryLower = query.toLowerCase();
 
-    // Configure Fuse.js for fuzzy search
+    // Configure Fuse.js for fuzzy search with better typo tolerance
     const fuseOptions = {
       keys: [
         { name: 'subject', weight: 0.4 },
@@ -193,55 +268,64 @@ export class SearchService {
         { name: 'preview', weight: 0.2 },
         { name: 'body', weight: 0.1 },
       ],
-      threshold: 0.4, // Lower threshold = more strict matching
+      threshold: 0.5, // Increased from 0.4 for more typo tolerance
       includeScore: true,
       minMatchCharLength: 2,
+      distance: 100, // Allow more distance between matches
+      ignoreLocation: true, // Don't care where in string match occurs
     };
 
     const fuse = new Fuse(emails, fuseOptions);
     const fuseResults = fuse.search(query);
 
-    // Also use Levenshtein distance for contact matching
+    // Improved Levenshtein distance for contact/sender matching
     for (const email of emails) {
       const fromLower = email.from.toLowerCase();
       const subjectLower = email.subject.toLowerCase();
 
-      // Check if query is similar to contact name/email
-      const fromDistance = levenshtein.get(queryLower, fromLower);
-      const maxLength = Math.max(queryLower.length, fromLower.length);
-      const similarity = 1 - fromDistance / maxLength;
+      // Calculate edit distance with adaptive threshold based on length
+      const maxDistance = Math.max(2, Math.floor(queryLower.length * 0.3)); // 30% error tolerance
 
-      if (similarity > 0.6 && similarity < 1.0) {
-        // Fuzzy match but not exact
-        const existingIndex = results.findIndex((r) => r.email.id === email.id);
-        if (existingIndex === -1) {
-          results.push({
-            email,
-            relevanceScore: Math.round(similarity * 60), // Max 60 for fuzzy
-            matchType: 'fuzzy',
-          });
+      const fromDistance = levenshtein.get(fromLower, queryLower);
+      const subjectDistance = levenshtein.get(subjectLower, queryLower);
+
+      // From field fuzzy match
+      if (fromDistance <= maxDistance && fromDistance < queryLower.length) {
+        const score = Math.round((1 - fromDistance / queryLower.length) * 65);
+        if (score > 30) {
+          const existingIndex = results.findIndex((r) => r.email.id === email.id);
+          if (existingIndex === -1) {
+            results.push({
+              email,
+              relevanceScore: score,
+              matchType: 'fuzzy',
+            });
+          } else {
+            results[existingIndex].relevanceScore = Math.max(
+              results[existingIndex].relevanceScore,
+              score,
+            );
+          }
         }
       }
 
-      // Check subject fuzzy match
-      const subjectDistance = levenshtein.get(queryLower, subjectLower);
-      const subjectMaxLength = Math.max(queryLower.length, subjectLower.length);
-      const subjectSimilarity = 1 - subjectDistance / subjectMaxLength;
-
-      if (subjectSimilarity > 0.5 && subjectSimilarity < 1.0) {
-        const existingIndex = results.findIndex((r) => r.email.id === email.id);
-        if (existingIndex === -1) {
-          results.push({
-            email,
-            relevanceScore: Math.round(subjectSimilarity * 50),
-            matchType: 'fuzzy',
-          });
-        } else {
-          // Update if higher score
-          results[existingIndex].relevanceScore = Math.max(
-            results[existingIndex].relevanceScore,
-            Math.round(subjectSimilarity * 50),
-          );
+      // Subject field fuzzy match
+      if (subjectDistance <= maxDistance && subjectDistance < queryLower.length) {
+        const score = Math.round((1 - subjectDistance / queryLower.length) * 70);
+        if (score > 30) {
+          const existingIndex = results.findIndex((r) => r.email.id === email.id);
+          if (existingIndex === -1) {
+            results.push({
+              email,
+              relevanceScore: score,
+              matchType: 'fuzzy',
+            });
+          } else {
+            results[existingIndex].relevanceScore = Math.max(
+              results[existingIndex].relevanceScore,
+              score,
+            );
+          }
         }
       }
     }

@@ -16,8 +16,17 @@ export class HttpLoggingInterceptor implements NestInterceptor {
   /**
    * Mask sensitive data in request body
    */
-  private maskSensitiveData(data: any): any {
+  private maskSensitiveData(data: any, visited = new WeakSet()): any {
     if (!data || typeof data !== 'object') return data;
+
+    // Prevent circular reference infinite loop
+    if (visited.has(data)) return '[Circular Reference]';
+    visited.add(data);
+
+    // Handle arrays
+    if (Array.isArray(data)) {
+      return data.map(item => this.maskSensitiveData(item, visited));
+    }
 
     const sensitiveKeys = [
       'password',
@@ -29,13 +38,15 @@ export class HttpLoggingInterceptor implements NestInterceptor {
       'authorization',
     ];
 
-    const masked = { ...data };
-    for (const key of Object.keys(masked)) {
+    const masked: any = {};
+    for (const key of Object.keys(data)) {
       const lowerKey = key.toLowerCase();
       if (sensitiveKeys.some((sk) => lowerKey.includes(sk))) {
         masked[key] = '***MASKED***';
-      } else if (typeof masked[key] === 'object') {
-        masked[key] = this.maskSensitiveData(masked[key]);
+      } else if (typeof data[key] === 'object' && data[key] !== null) {
+        masked[key] = this.maskSensitiveData(data[key], visited);
+      } else {
+        masked[key] = data[key];
       }
     }
 
