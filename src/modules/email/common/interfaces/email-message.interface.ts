@@ -32,6 +32,7 @@ export interface IEmailDetail extends IEmailPreview {
   bcc?: string;
   readAt?: Date;
   attachments?: IAttachmentRef[];
+  gmailMessageId?: string; // For Gmail emails to enable 'Open in Gmail' button
 }
 
 /**
