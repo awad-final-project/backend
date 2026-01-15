@@ -459,17 +459,21 @@ export class GmailProviderService implements IEmailProvider {
     }
 
     try {
+      // Encode subject line properly for UTF-8 (RFC 2047)
+      const encodedSubject = Buffer.from(subject, 'utf-8').toString('utf-8');
+      
       // Build email content
       const boundary = '----=_Part_' + Date.now();
       let emailContent = [
         `From: ${userEmail}`,
         `To: ${to}`,
-        `Subject: ${subject}`,
+        `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,
         `MIME-Version: 1.0`,
         `Content-Type: multipart/mixed; boundary="${boundary}"`,
         '',
         `--${boundary}`,
         `Content-Type: text/html; charset=UTF-8`,
+        `Content-Transfer-Encoding: quoted-printable`,
         '',
         body,
       ];
