@@ -33,7 +33,7 @@ ENV NODE_ENV=production
 
 # Copy package files and install production dependencies fresh
 COPY package.json pnpm-lock.yaml* ./
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile --ignore-scripts
 
 # Copy built application
 COPY --from=build /app/dist /app/dist
