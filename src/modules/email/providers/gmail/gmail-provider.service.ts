@@ -52,11 +52,14 @@ export class GmailProviderService implements IEmailProvider {
 
     // Check if token needs refresh (expired or expires in less than 5 minutes)
     const now = new Date();
-    const tokenExpiry = user.googleTokenExpiry ? new Date(user.googleTokenExpiry) : null;
-    const needsRefresh = forceRefresh || 
-                        !user.googleAccessToken || 
-                        !tokenExpiry || 
-                        (tokenExpiry.getTime() - now.getTime()) < 5 * 60 * 1000; // 5 minutes buffer
+    const tokenExpiry = user.googleTokenExpiry
+      ? new Date(user.googleTokenExpiry)
+      : null;
+    const needsRefresh =
+      forceRefresh ||
+      !user.googleAccessToken ||
+      !tokenExpiry ||
+      tokenExpiry.getTime() - now.getTime() < 5 * 60 * 1000; // 5 minutes buffer
 
     if (needsRefresh && user.googleRefreshToken) {
       this.logger.log(`Proactively refreshing Google token for user ${userId}`);
@@ -67,10 +70,10 @@ export class GmailProviderService implements IEmailProvider {
       try {
         // Force refresh the access token
         const { credentials } = await oauth2Client.refreshAccessToken();
-        
+
         if (credentials.access_token) {
           user.googleAccessToken = credentials.access_token;
-          
+
           // Calculate expiry time (Google tokens typically last 1 hour)
           const expiryTime = new Date();
           if (credentials.expiry_date) {
@@ -80,22 +83,32 @@ export class GmailProviderService implements IEmailProvider {
             expiryTime.setTime(expiryTime.getTime() + 3600 * 1000);
           }
           user.googleTokenExpiry = expiryTime;
-          
-          this.logger.log(`Token refreshed for user ${userId}, expires at ${expiryTime.toISOString()}`);
+
+          this.logger.log(
+            `Token refreshed for user ${userId}, expires at ${expiryTime.toISOString()}`,
+          );
         }
-        
+
         if (credentials.refresh_token) {
           user.googleRefreshToken = credentials.refresh_token;
         }
-        
+
         await this.accountModel.save(user);
       } catch (error) {
-        this.logger.error(`Failed to refresh token for user ${userId}: ${error.message}`);
-        throw new Error('Failed to refresh Google access token. Please re-authenticate.');
+        this.logger.error(
+          `Failed to refresh token for user ${userId}: ${error.message}`,
+        );
+        throw new Error(
+          'Failed to refresh Google access token. Please re-authenticate.',
+        );
       }
     } else if (tokenExpiry) {
-      const minutesLeft = Math.floor((tokenExpiry.getTime() - now.getTime()) / 60000);
-      this.logger.debug(`Google token for user ${userId} valid for ${minutesLeft} more minutes`);
+      const minutesLeft = Math.floor(
+        (tokenExpiry.getTime() - now.getTime()) / 60000,
+      );
+      this.logger.debug(
+        `Google token for user ${userId} valid for ${minutesLeft} more minutes`,
+      );
     }
 
     oauth2Client.setCredentials({
@@ -105,10 +118,12 @@ export class GmailProviderService implements IEmailProvider {
 
     // Set up token refresh handler for automatic refresh during API calls
     oauth2Client.on('tokens', async (tokens) => {
-      this.logger.log(`Tokens auto-refreshed during API call for user ${userId}`);
+      this.logger.log(
+        `Tokens auto-refreshed during API call for user ${userId}`,
+      );
       if (tokens.access_token) {
         user.googleAccessToken = tokens.access_token;
-        
+
         // Update expiry time
         const expiryTime = new Date();
         if (tokens.expiry_date) {
@@ -117,7 +132,7 @@ export class GmailProviderService implements IEmailProvider {
           expiryTime.setTime(expiryTime.getTime() + 3600 * 1000);
         }
         user.googleTokenExpiry = expiryTime;
-        
+
         await this.accountModel.save(user);
       }
       if (tokens.refresh_token) {
@@ -139,12 +154,14 @@ export class GmailProviderService implements IEmailProvider {
       // Actually test Gmail API access by making a simple API call
       // This verifies the token has Gmail scope permissions
       await gmail.users.labels.list({ userId: 'me' });
-      
+
       this.logger.log(`Gmail API is available for user ${userId}`);
       return true;
     } catch (error) {
       // If we get permission error or any API error, Gmail is not available
-      this.logger.warn(`Gmail API not available for user ${userId}: ${error.message}`);
+      this.logger.warn(
+        `Gmail API not available for user ${userId}: ${error.message}`,
+      );
       return false;
     }
   }
@@ -180,7 +197,12 @@ export class GmailProviderService implements IEmailProvider {
           count: getCount('STARRED', true),
           icon: 'star',
         },
-        { id: 'sent', name: 'Sent', count: getCount('SENT', true), icon: 'send' },
+        {
+          id: 'sent',
+          name: 'Sent',
+          count: getCount('SENT', true),
+          icon: 'send',
+        },
         {
           id: 'drafts',
           name: 'Drafts',
@@ -215,7 +237,9 @@ export class GmailProviderService implements IEmailProvider {
 
     try {
       const labelId = mapFolderToGmailLabel(folder);
-      this.logger.debug(`Fetching emails for user ${userId}, folder: ${folder}, labelId: ${labelId}, page: ${page}`);
+      this.logger.debug(
+        `Fetching emails for user ${userId}, folder: ${folder}, labelId: ${labelId}, page: ${page}`,
+      );
 
       // Gmail API uses pageToken for pagination, not offset
       // Iterate through pages to reach requested page
@@ -234,17 +258,21 @@ export class GmailProviderService implements IEmailProvider {
           });
         } catch (error: any) {
           if (error.code === 401 || error.message?.includes('invalid_grant')) {
-            this.logger.error(`Authentication error for user ${userId}: ${error.message}`);
-            throw new Error('Gmail authentication expired. Please re-authenticate with Google.');
+            this.logger.error(
+              `Authentication error for user ${userId}: ${error.message}`,
+            );
+            throw new Error(
+              'Gmail authentication expired. Please re-authenticate with Google.',
+            );
           }
           throw error;
         }
-        
+
         // If we reached the target page, stop
         if (currentPage === page) {
           break;
         }
-        
+
         // Get next page token for next iteration
         pageToken = res.data.nextPageToken;
         if (!pageToken) {
@@ -258,16 +286,18 @@ export class GmailProviderService implements IEmailProvider {
             hasMore: false,
           };
         }
-        
+
         currentPage++;
       }
-      
+
       // Ensure we have data
       if (!res) {
         throw new Error('Failed to fetch emails from Gmail');
       }
 
-      this.logger.debug(`Fetched ${res.data.messages?.length || 0} messages for user ${userId}`);
+      this.logger.debug(
+        `Fetched ${res.data.messages?.length || 0} messages for user ${userId}`,
+      );
 
       const messages = res.data.messages || [];
       const emails: IEmailPreview[] = await Promise.all(
@@ -278,18 +308,33 @@ export class GmailProviderService implements IEmailProvider {
           });
           const headers = data.payload.headers;
           const subject =
-            headers.find((h) => h.name === 'Subject')?.value ||
-            '(No Subject)';
+            headers.find((h) => h.name === 'Subject')?.value || '(No Subject)';
           const from = headers.find((h) => h.name === 'From')?.value || '';
           const to = headers.find((h) => h.name === 'To')?.value || '';
           const date = headers.find((h) => h.name === 'Date')?.value;
 
           // Extract custom labels (exclude system labels)
-          const systemLabels = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'UNREAD', 'STARRED', 'IMPORTANT', 'CATEGORY_PERSONAL', 'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS'];
+          const systemLabels = [
+            'INBOX',
+            'SENT',
+            'DRAFT',
+            'SPAM',
+            'TRASH',
+            'UNREAD',
+            'STARRED',
+            'IMPORTANT',
+            'CATEGORY_PERSONAL',
+            'CATEGORY_SOCIAL',
+            'CATEGORY_PROMOTIONS',
+            'CATEGORY_UPDATES',
+            'CATEGORY_FORUMS',
+          ];
           const allLabelIds = data.labelIds || [];
-          const customLabelIds = allLabelIds.filter(labelId => !systemLabels.includes(labelId));
-          
-          const customLabels = customLabelIds.map(labelId => {
+          const customLabelIds = allLabelIds.filter(
+            (labelId) => !systemLabels.includes(labelId),
+          );
+
+          const customLabels = customLabelIds.map((labelId) => {
             // Try to get label name from cache or use ID
             const labelName = this.getLabelNameFromCache(userId, labelId);
             return labelName || labelId;
@@ -315,10 +360,10 @@ export class GmailProviderService implements IEmailProvider {
 
       const total = res.data.resultSizeEstimate || 0;
       const hasMore = !!res.data.nextPageToken;
-      
+
       // Calculate estimated total pages based on total count
       const estimatedTotalPages = total > 0 ? Math.ceil(total / limit) : 1;
-      
+
       return {
         emails,
         total,
@@ -335,7 +380,10 @@ export class GmailProviderService implements IEmailProvider {
     }
   }
 
-  async getEmailById(userId: string, emailId: string): Promise<IEmailDetail | null> {
+  async getEmailById(
+    userId: string,
+    emailId: string,
+  ): Promise<IEmailDetail | null> {
     const gmail = await this.getGmailClient(userId);
     if (!gmail) {
       throw new Error('Gmail not available for this user');
@@ -346,7 +394,7 @@ export class GmailProviderService implements IEmailProvider {
         userId: 'me',
         id: emailId,
       });
-      
+
       const headers = data.payload.headers;
       const subject =
         headers.find((h) => h.name === 'Subject')?.value || '(No Subject)';
@@ -370,16 +418,31 @@ export class GmailProviderService implements IEmailProvider {
       }
 
       // Extract custom labels (exclude system labels)
-      const systemLabels = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'UNREAD', 'STARRED', 'IMPORTANT', 'CATEGORY_PERSONAL', 'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS'];
+      const systemLabels = [
+        'INBOX',
+        'SENT',
+        'DRAFT',
+        'SPAM',
+        'TRASH',
+        'UNREAD',
+        'STARRED',
+        'IMPORTANT',
+        'CATEGORY_PERSONAL',
+        'CATEGORY_SOCIAL',
+        'CATEGORY_PROMOTIONS',
+        'CATEGORY_UPDATES',
+        'CATEGORY_FORUMS',
+      ];
       const customLabels = (data.labelIds || [])
-        .filter(labelId => !systemLabels.includes(labelId))
-        .map(labelId => {
+        .filter((labelId) => !systemLabels.includes(labelId))
+        .map((labelId) => {
           const labelName = this.getLabelNameFromCache(userId, labelId);
           return labelName || labelId;
         });
 
       return {
         id: data.id,
+        gmailMessageId: data.id, // Add Gmail message ID for 'Open in Gmail' button
         from: extractEmailAddress(from),
         to: extractEmailAddress(to),
         cc,
@@ -451,7 +514,11 @@ export class GmailProviderService implements IEmailProvider {
     to: string,
     subject: string,
     body: string,
-    attachments?: Array<{ content: Buffer; filename: string; mimeType: string }>,
+    attachments?: Array<{
+      content: Buffer;
+      filename: string;
+      mimeType: string;
+    }>,
   ): Promise<{ success: boolean; messageId?: string }> {
     const gmail = await this.getGmailClient(userId);
     if (!gmail) {
@@ -459,12 +526,9 @@ export class GmailProviderService implements IEmailProvider {
     }
 
     try {
-      // Encode subject line properly for UTF-8 (RFC 2047)
-      const encodedSubject = Buffer.from(subject, 'utf-8').toString('utf-8');
-      
-      // Build email content
+      // Build email content with properly encoded subject (RFC 2047)
       const boundary = '----=_Part_' + Date.now();
-      let emailContent = [
+      const emailContent = [
         `From: ${userEmail}`,
         `To: ${to}`,
         `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,
@@ -485,7 +549,9 @@ export class GmailProviderService implements IEmailProvider {
           emailContent.push(
             `Content-Type: ${attachment.mimeType}; name="${attachment.filename}"`,
           );
-          emailContent.push(`Content-Disposition: attachment; filename="${attachment.filename}"`);
+          emailContent.push(
+            `Content-Disposition: attachment; filename="${attachment.filename}"`,
+          );
           emailContent.push(`Content-Transfer-Encoding: base64`);
           emailContent.push('');
           emailContent.push(attachment.content.toString('base64'));
@@ -518,7 +584,11 @@ export class GmailProviderService implements IEmailProvider {
     emailId: string,
     body: string,
     replyAll: boolean,
-    attachments?: Array<{ content: Buffer; filename: string; mimeType: string }>,
+    attachments?: Array<{
+      content: Buffer;
+      filename: string;
+      mimeType: string;
+    }>,
   ): Promise<{ success: boolean; messageId?: string }> {
     const gmail = await this.getGmailClient(userId);
     if (!gmail) {
@@ -536,18 +606,27 @@ export class GmailProviderService implements IEmailProvider {
       const originalFrom = headers.find((h) => h.name === 'From')?.value || '';
       const originalTo = headers.find((h) => h.name === 'To')?.value || '';
       const originalCc = headers.find((h) => h.name === 'Cc')?.value;
-      const originalSubject = headers.find((h) => h.name === 'Subject')?.value || '';
+      const originalSubject =
+        headers.find((h) => h.name === 'Subject')?.value || '';
       const messageId = headers.find((h) => h.name === 'Message-ID')?.value;
 
       let to = extractEmailAddress(originalFrom);
       let cc = '';
 
       if (replyAll) {
-        const toList = originalTo.split(',').map((email) => extractEmailAddress(email.trim()));
-        const ccList = originalCc ? originalCc.split(',').map((email) => extractEmailAddress(email.trim())) : [];
-        
+        const toList = originalTo
+          .split(',')
+          .map((email) => extractEmailAddress(email.trim()));
+        const ccList = originalCc
+          ? originalCc
+              .split(',')
+              .map((email) => extractEmailAddress(email.trim()))
+          : [];
+
         // Remove user's own email
-        const allRecipients = [...toList, ...ccList].filter((email) => email !== userEmail);
+        const allRecipients = [...toList, ...ccList].filter(
+          (email) => email !== userEmail,
+        );
         to = extractEmailAddress(originalFrom);
         cc = allRecipients.join(', ');
       }
@@ -558,10 +637,7 @@ export class GmailProviderService implements IEmailProvider {
 
       // Build email
       const boundary = '----=_Part_' + Date.now();
-      let emailContent = [
-        `From: ${userEmail}`,
-        `To: ${to}`,
-      ];
+      const emailContent = [`From: ${userEmail}`, `To: ${to}`];
 
       if (cc) {
         emailContent.push(`Cc: ${cc}`);
@@ -587,7 +663,9 @@ export class GmailProviderService implements IEmailProvider {
           emailContent.push(
             `Content-Type: ${attachment.mimeType}; name="${attachment.filename}"`,
           );
-          emailContent.push(`Content-Disposition: attachment; filename="${attachment.filename}"`);
+          emailContent.push(
+            `Content-Disposition: attachment; filename="${attachment.filename}"`,
+          );
           emailContent.push(`Content-Transfer-Encoding: base64`);
           emailContent.push('');
           emailContent.push(attachment.content.toString('base64'));
@@ -617,7 +695,11 @@ export class GmailProviderService implements IEmailProvider {
     }
   }
 
-  async markAsRead(userId: string, emailId: string, isRead: boolean): Promise<boolean> {
+  async markAsRead(
+    userId: string,
+    emailId: string,
+    isRead: boolean,
+  ): Promise<boolean> {
     const gmail = await this.getGmailClient(userId);
     if (!gmail) return false;
 
@@ -636,7 +718,10 @@ export class GmailProviderService implements IEmailProvider {
     }
   }
 
-  async toggleStar(userId: string, emailId: string): Promise<{ isStarred: boolean }> {
+  async toggleStar(
+    userId: string,
+    emailId: string,
+  ): Promise<{ isStarred: boolean }> {
     const gmail = await this.getGmailClient(userId);
     if (!gmail) {
       throw new Error('Gmail not available for this user');
@@ -698,7 +783,11 @@ export class GmailProviderService implements IEmailProvider {
     }
   }
 
-  async moveToFolder(userId: string, emailId: string, folder: string): Promise<boolean> {
+  async moveToFolder(
+    userId: string,
+    emailId: string,
+    folder: string,
+  ): Promise<boolean> {
     const gmail = await this.getGmailClient(userId);
     if (!gmail) return false;
 
@@ -720,7 +809,11 @@ export class GmailProviderService implements IEmailProvider {
     }
   }
 
-  async addLabel(userId: string, emailId: string, label: string): Promise<boolean> {
+  async addLabel(
+    userId: string,
+    emailId: string,
+    label: string,
+  ): Promise<boolean> {
     if (!label) {
       return false;
     }
@@ -744,12 +837,18 @@ export class GmailProviderService implements IEmailProvider {
 
       return true;
     } catch (error) {
-      this.logger.warn(`Failed to add label ${label} to email ${emailId}: ${error.message}`);
+      this.logger.warn(
+        `Failed to add label ${label} to email ${emailId}: ${error.message}`,
+      );
       return false;
     }
   }
 
-  async removeLabel(userId: string, emailId: string, label: string): Promise<boolean> {
+  async removeLabel(
+    userId: string,
+    emailId: string,
+    label: string,
+  ): Promise<boolean> {
     if (!label) {
       return false;
     }
@@ -773,12 +872,18 @@ export class GmailProviderService implements IEmailProvider {
 
       return true;
     } catch (error) {
-      this.logger.warn(`Failed to remove label ${label} from email ${emailId}: ${error.message}`);
+      this.logger.warn(
+        `Failed to remove label ${label} from email ${emailId}: ${error.message}`,
+      );
       return false;
     }
   }
 
-  async updateLabels(userId: string, emailId: string, labels: string[]): Promise<{ labels: string[] }> {
+  async updateLabels(
+    userId: string,
+    emailId: string,
+    labels: string[],
+  ): Promise<{ labels: string[] }> {
     const gmail = await this.getGmailClient(userId);
     if (!gmail) {
       this.logger.warn(`Gmail client not available for user ${userId}`);
@@ -795,10 +900,21 @@ export class GmailProviderService implements IEmailProvider {
       });
 
       const currentLabelIds = message.labelIds || [];
-      
+
       // Filter out system labels (INBOX, STARRED, TRASH, etc.) - we don't want to modify those
-      const systemLabels = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'UNREAD', 'STARRED', 'IMPORTANT'];
-      const currentCustomLabels = currentLabelIds.filter(id => !systemLabels.includes(id));
+      const systemLabels = [
+        'INBOX',
+        'SENT',
+        'DRAFT',
+        'SPAM',
+        'TRASH',
+        'UNREAD',
+        'STARRED',
+        'IMPORTANT',
+      ];
+      const currentCustomLabels = currentLabelIds.filter(
+        (id) => !systemLabels.includes(id),
+      );
 
       // Resolve new label IDs (create if they don't exist)
       const newLabelIds: string[] = [];
@@ -811,8 +927,12 @@ export class GmailProviderService implements IEmailProvider {
       }
 
       // Calculate which labels to add and remove
-      const labelsToAdd = newLabelIds.filter(id => !currentCustomLabels.includes(id));
-      const labelsToRemove = currentCustomLabels.filter(id => !newLabelIds.includes(id));
+      const labelsToAdd = newLabelIds.filter(
+        (id) => !currentCustomLabels.includes(id),
+      );
+      const labelsToRemove = currentCustomLabels.filter(
+        (id) => !newLabelIds.includes(id),
+      );
 
       // Only make API call if there are changes
       if (labelsToAdd.length > 0 || labelsToRemove.length > 0) {
@@ -825,7 +945,9 @@ export class GmailProviderService implements IEmailProvider {
           },
         });
 
-        this.logger.log(`Updated labels for email ${emailId}: +${labelsToAdd.length}, -${labelsToRemove.length}`);
+        this.logger.log(
+          `Updated labels for email ${emailId}: +${labelsToAdd.length}, -${labelsToRemove.length}`,
+        );
       }
 
       return { labels };
@@ -887,7 +1009,9 @@ export class GmailProviderService implements IEmailProvider {
         return data.id;
       }
     } catch (error) {
-      this.logger.warn(`Unable to create Gmail label ${labelName}: ${error.message}`);
+      this.logger.warn(
+        `Unable to create Gmail label ${labelName}: ${error.message}`,
+      );
     }
 
     return null;
@@ -900,10 +1024,13 @@ export class GmailProviderService implements IEmailProvider {
     this.labelCache.get(userId)!.set(key, labelId);
   }
 
-  private getLabelNameFromCache(userId: string, labelId: string): string | null {
+  private getLabelNameFromCache(
+    userId: string,
+    labelId: string,
+  ): string | null {
     const userCache = this.labelCache.get(userId);
     if (!userCache) return null;
-    
+
     // Reverse lookup: find key by value
     for (const [key, cachedId] of userCache.entries()) {
       if (cachedId === labelId) {
@@ -911,11 +1038,15 @@ export class GmailProviderService implements IEmailProvider {
         return key.toLowerCase();
       }
     }
-    
+
     return null;
   }
 
-  async downloadAttachment(userId: string, emailId: string, attachmentId: string): Promise<{
+  async downloadAttachment(
+    userId: string,
+    emailId: string,
+    attachmentId: string,
+  ): Promise<{
     buffer: Buffer;
     filename: string;
     mimeType: string;
@@ -933,13 +1064,15 @@ export class GmailProviderService implements IEmailProvider {
         id: emailId,
       });
 
-      this.logger.debug(`Looking for attachment ${attachmentId} in email ${emailId}`);
+      this.logger.debug(
+        `Looking for attachment ${attachmentId} in email ${emailId}`,
+      );
 
       // Helper function to recursively find ALL attachments
       const allAttachments: any[] = [];
       const collectAllAttachments = (parts: any[]): void => {
         if (!parts || !Array.isArray(parts)) return;
-        
+
         for (const part of parts) {
           // Check if this part has an attachment
           if (part.body && part.body.attachmentId && part.filename) {
@@ -951,7 +1084,7 @@ export class GmailProviderService implements IEmailProvider {
               size: part.body.size,
             });
           }
-          
+
           // Recursively check nested parts
           if (part.parts && Array.isArray(part.parts)) {
             collectAllAttachments(part.parts);
@@ -963,9 +1096,13 @@ export class GmailProviderService implements IEmailProvider {
       if (messageData.payload.parts) {
         collectAllAttachments(messageData.payload.parts);
       }
-      
+
       // Check if payload itself is an attachment
-      if (messageData.payload.body && messageData.payload.body.attachmentId && messageData.payload.filename) {
+      if (
+        messageData.payload.body &&
+        messageData.payload.body.attachmentId &&
+        messageData.payload.filename
+      ) {
         allAttachments.push({
           part: messageData.payload,
           attachmentId: messageData.payload.body.attachmentId,
@@ -982,13 +1119,17 @@ export class GmailProviderService implements IEmailProvider {
       this.logger.debug(`Found ${allAttachments.length} attachments in email`);
 
       // Try to find by exact attachmentId first
-      let targetAttachment = allAttachments.find(a => a.attachmentId === attachmentId);
-      
+      let targetAttachment = allAttachments.find(
+        (a) => a.attachmentId === attachmentId,
+      );
+
       // If not found (attachmentId changed), use the first attachment if there's only one
       // or try to match by comparing the beginning of the ID (they often share a prefix)
       if (!targetAttachment) {
-        this.logger.warn(`Exact attachmentId not found. Looking for similar attachment...`);
-        
+        this.logger.warn(
+          `Exact attachmentId not found. Looking for similar attachment...`,
+        );
+
         if (allAttachments.length === 1) {
           // If there's only one attachment, use it
           this.logger.debug(`Only one attachment found, using it`);
@@ -996,8 +1137,10 @@ export class GmailProviderService implements IEmailProvider {
         } else {
           // Try to find by comparing ID prefix (first 20 chars)
           const idPrefix = attachmentId.substring(0, 20);
-          targetAttachment = allAttachments.find(a => a.attachmentId.startsWith(idPrefix));
-          
+          targetAttachment = allAttachments.find((a) =>
+            a.attachmentId.startsWith(idPrefix),
+          );
+
           if (!targetAttachment) {
             // Last resort: use first attachment
             this.logger.warn(`Could not match attachment, using first one`);
@@ -1007,14 +1150,17 @@ export class GmailProviderService implements IEmailProvider {
       }
 
       const actualAttachmentId = targetAttachment.attachmentId;
-      this.logger.debug(`Using attachment: ${targetAttachment.filename} (ID: ${actualAttachmentId.substring(0, 30)}...)`);
+      this.logger.debug(
+        `Using attachment: ${targetAttachment.filename} (ID: ${actualAttachmentId.substring(0, 30)}...)`,
+      );
 
       // Download the attachment using the ACTUAL attachmentId from the current fetch
-      const { data: attachmentData } = await gmail.users.messages.attachments.get({
-        userId: 'me',
-        messageId: emailId,
-        id: actualAttachmentId,
-      });
+      const { data: attachmentData } =
+        await gmail.users.messages.attachments.get({
+          userId: 'me',
+          messageId: emailId,
+          id: actualAttachmentId,
+        });
 
       if (!attachmentData || !attachmentData.data) {
         throw new Error('No attachment data returned from Gmail API');
@@ -1024,7 +1170,7 @@ export class GmailProviderService implements IEmailProvider {
       // Convert Base64URL to standard Base64
       let base64Data = attachmentData.data;
       base64Data = base64Data.replace(/-/g, '+').replace(/_/g, '/');
-      
+
       // Add padding if needed
       while (base64Data.length % 4) {
         base64Data += '=';
@@ -1032,7 +1178,9 @@ export class GmailProviderService implements IEmailProvider {
 
       const buffer = Buffer.from(base64Data, 'base64');
 
-      this.logger.debug(`Successfully decoded attachment: ${targetAttachment.filename}, size: ${buffer.length} bytes`);
+      this.logger.debug(
+        `Successfully decoded attachment: ${targetAttachment.filename}, size: ${buffer.length} bytes`,
+      );
 
       return {
         buffer,
@@ -1041,7 +1189,9 @@ export class GmailProviderService implements IEmailProvider {
         size: buffer.length,
       };
     } catch (error) {
-      this.logger.error(`Failed to download Gmail attachment: ${error.message}`);
+      this.logger.error(
+        `Failed to download Gmail attachment: ${error.message}`,
+      );
       throw error;
     }
   }
@@ -1124,16 +1274,27 @@ export class GmailProviderService implements IEmailProvider {
 
             const headers = data.payload?.headers || [];
             const subject =
-              headers.find((h) => h.name === 'Subject')?.value || '(No Subject)';
+              headers.find((h) => h.name === 'Subject')?.value ||
+              '(No Subject)';
             const from = headers.find((h) => h.name === 'From')?.value || '';
             const to = headers.find((h) => h.name === 'To')?.value || '';
             const date = headers.find((h) => h.name === 'Date')?.value;
 
             // Extract custom labels
             const systemLabels = [
-              'INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'UNREAD',
-              'STARRED', 'IMPORTANT', 'CATEGORY_PERSONAL', 'CATEGORY_SOCIAL',
-              'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS',
+              'INBOX',
+              'SENT',
+              'DRAFT',
+              'SPAM',
+              'TRASH',
+              'UNREAD',
+              'STARRED',
+              'IMPORTANT',
+              'CATEGORY_PERSONAL',
+              'CATEGORY_SOCIAL',
+              'CATEGORY_PROMOTIONS',
+              'CATEGORY_UPDATES',
+              'CATEGORY_FORUMS',
             ];
             const allLabelIds = data.labelIds || [];
             const customLabelIds = allLabelIds.filter(
@@ -1154,12 +1315,16 @@ export class GmailProviderService implements IEmailProvider {
               preview: data.snippet || '', // Gmail snippet as preview
               isRead: !data.labelIds?.includes('UNREAD'),
               isStarred: data.labelIds?.includes('STARRED'),
-              hasAttachments: data.payload?.parts?.some((p) => p.filename) || false,
+              hasAttachments:
+                data.payload?.parts?.some((p) => p.filename) || false,
               labels: customLabels,
               folder: this.determineFolderFromLabels(data.labelIds || []),
             };
           } catch (error) {
-            this.logger.warn(`Failed to fetch message ${msg.id}:`, error.message);
+            this.logger.warn(
+              `Failed to fetch message ${msg.id}:`,
+              error.message,
+            );
             return null;
           }
         }),
@@ -1170,7 +1335,9 @@ export class GmailProviderService implements IEmailProvider {
     } catch (error: any) {
       this.logger.error(`Gmail search failed: ${error.message}`);
       if (error.code === 401 || error.message?.includes('invalid_grant')) {
-        throw new Error('Gmail authentication expired. Please re-authenticate with Google.');
+        throw new Error(
+          'Gmail authentication expired. Please re-authenticate with Google.',
+        );
       }
       throw error;
     }
