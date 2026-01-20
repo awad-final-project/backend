@@ -129,4 +129,55 @@ export class DynamicMailService {
       throw error;
     }
   }
+
+  /**
+   * Send email using system SMTP configuration (for internal @hkt.com users sending to external)
+   */
+  async sendWithSystemTransport(options: DynamicMailOptions): Promise<void> {
+    try {
+      const mailHost = this.configService.get<string>('MAIL_HOST');
+      const mailPort = parseInt(this.configService.get<string>('MAIL_PORT') || '587', 10);
+      const mailSecure = this.configService.get<string>('MAIL_SECURE') === 'true';
+      const mailUser = this.configService.get<string>('MAIL_USER');
+      const mailPassword = this.configService.get<string>('MAIL_PASSWORD');
+      const mailFrom = this.configService.get<string>('MAIL_FROM') || 'noreply@hkt.com';
+
+      if (!mailHost || !mailUser || !mailPassword) {
+        throw new Error('System SMTP not configured. Please set MAIL_HOST, MAIL_USER, MAIL_PASSWORD in .env');
+      }
+
+      const transporter = nodemailer.createTransport({
+        host: mailHost,
+        port: mailPort,
+        secure: mailSecure,
+        auth: {
+          user: mailUser,
+          pass: mailPassword,
+        },
+        tls: {
+          rejectUnauthorized: false,
+        },
+      });
+
+      const mailOptions = {
+        from: options.from || mailFrom,
+        to: options.to,
+        subject: options.subject,
+        html: options.html,
+        text: options.text,
+        attachments: options.attachments,
+        cc: options.cc,
+        bcc: options.bcc,
+        replyTo: options.replyTo,
+      };
+
+      const info = await transporter.sendMail(mailOptions);
+      this.logger.log(`System email sent successfully: ${info.messageId}`);
+      
+      transporter.close();
+    } catch (error) {
+      this.logger.error(`Failed to send system email: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
 }
