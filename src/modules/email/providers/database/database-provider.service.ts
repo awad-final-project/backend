@@ -1,5 +1,5 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
-import { EmailModel } from '@database/models';
+import { EmailModel, AccountModel } from '@database/models';
 import {
   IEmailProvider,
   IEmailDetail,
@@ -10,17 +10,24 @@ import {
 import { EmailFilterOptions } from '@email/common/interfaces';
 import { isValidObjectId } from 'mongoose';
 import { generatePreview } from '@email/common/utils/email.utils';
+import { DynamicMailService } from '@app/modules/mailer';
 
 /**
  * Database Provider Service
  * Fallback provider when external providers (Gmail/IMAP) are not available
  * Implements IEmailProvider using local database storage
+ * Now supports sending internal emails (@hkt.com) and external emails via SMTP
  */
 @Injectable()
 export class DatabaseProviderService implements IEmailProvider {
   private readonly logger = new Logger(DatabaseProviderService.name);
+  private readonly INTERNAL_DOMAIN = 'hkt.com';
 
-  constructor(private readonly emailModel: EmailModel) {}
+  constructor(
+    private readonly emailModel: EmailModel,
+    private readonly accountModel: AccountModel,
+    private readonly dynamicMailService: DynamicMailService,
+  ) {}
 
   async isAvailable(userId: string): Promise<boolean> {
     // Database provider is always available
@@ -192,6 +199,21 @@ export class DatabaseProviderService implements IEmailProvider {
     }
   }
 
+  /**
+   * Check if email is internal (@hkt.com domain)
+   */
+  private isInternalEmail(email: string): boolean {
+    return email.toLowerCase().endsWith(`@${this.INTERNAL_DOMAIN}`);
+  }
+
+  /**
+   * Extract email address from "Name <email>" format
+   */
+  private extractEmailAddress(emailString: string): string {
+    const match = emailString.match(/<([^>]+)>/);
+    return match ? match[1].trim() : emailString.trim();
+  }
+
   async sendEmail(
     userId: string,
     userEmail: string,
@@ -200,13 +222,104 @@ export class DatabaseProviderService implements IEmailProvider {
     body: string,
     attachments?: Array<{ content: Buffer; filename: string; mimeType: string }>,
   ): Promise<{ success: boolean; messageId?: string }> {
-    // Database provider doesn't actually send emails
-    // This would be handled by a mail service in production
-    this.logger.warn('Database provider cannot send emails. Use Gmail or SMTP provider.');
-    throw new HttpException(
-      'Email sending not supported by database provider',
-      HttpStatus.NOT_IMPLEMENTED,
-    );
+    try {
+      const recipientEmail = this.extractEmailAddress(to);
+      const senderEmail = this.extractEmailAddress(userEmail);
+      const messageId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}@${this.INTERNAL_DOMAIN}`;
+      const now = new Date();
+
+      // Get sender info
+      const sender = await this.accountModel.findOne({ _id: userId });
+      const senderName = sender?.username || senderEmail;
+
+      // Save to sender's sent folder
+      await this.emailModel.save({
+        accountId: userId,
+        from: `${senderName} <${senderEmail}>`,
+        to: recipientEmail,
+        subject,
+        body,
+        preview: generatePreview(body),
+        folder: 'sent',
+        isRead: true,
+        isStarred: false,
+        sentAt: now,
+        messageId,
+        attachments: attachments?.map(att => ({
+          filename: att.filename,
+          mimeType: att.mimeType,
+          size: att.content.length,
+        })) || [],
+      });
+
+      this.logger.log(`Email saved to sent folder for user ${userId}`);
+
+      // Check if recipient is internal (@hkt.com)
+      if (this.isInternalEmail(recipientEmail)) {
+        // Internal email - save directly to recipient's inbox
+        const recipient = await this.accountModel.findOne({ email: recipientEmail });
+        
+        if (recipient) {
+          await this.emailModel.save({
+            accountId: recipient._id.toString(),
+            from: `${senderName} <${senderEmail}>`,
+            to: recipientEmail,
+            subject,
+            body,
+            preview: generatePreview(body),
+            folder: 'inbox',
+            isRead: false,
+            isStarred: false,
+            sentAt: now,
+            messageId,
+            attachments: attachments?.map(att => ({
+              filename: att.filename,
+              mimeType: att.mimeType,
+              size: att.content.length,
+            })) || [],
+          });
+          
+          this.logger.log(`Internal email delivered to ${recipientEmail}`);
+        } else {
+          this.logger.warn(`Internal recipient ${recipientEmail} not found in system`);
+        }
+      } else {
+        // External email - send via SMTP
+        try {
+          await this.dynamicMailService.sendWithSystemTransport({
+            from: `${senderName} <${senderEmail}>`,
+            to: recipientEmail,
+            subject,
+            html: body,
+            attachments: attachments?.map(att => ({
+              filename: att.filename,
+              content: att.content,
+              contentType: att.mimeType,
+            })),
+          });
+          
+          this.logger.log(`External email sent to ${recipientEmail} via SMTP`);
+        } catch (smtpError) {
+          this.logger.error(`SMTP send failed: ${smtpError.message}`);
+          // Email is still saved in sent folder, just couldn't be delivered externally
+          throw new HttpException(
+            `Email saved but delivery failed: ${smtpError.message}`,
+            HttpStatus.PARTIAL_CONTENT,
+          );
+        }
+      }
+
+      return { success: true, messageId };
+    } catch (error) {
+      this.logger.error(`Failed to send email: ${error.message}`);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        `Failed to send email: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   async replyToEmail(
@@ -217,12 +330,40 @@ export class DatabaseProviderService implements IEmailProvider {
     replyAll: boolean,
     attachments?: Array<{ content: Buffer; filename: string; mimeType: string }>,
   ): Promise<{ success: boolean; messageId?: string }> {
-    // Database provider doesn't actually send emails
-    this.logger.warn('Database provider cannot reply to emails. Use Gmail or SMTP provider.');
-    throw new HttpException(
-      'Email reply not supported by database provider',
-      HttpStatus.NOT_IMPLEMENTED,
-    );
+    try {
+      // Get original email
+      const originalEmail = await this.emailModel.findById(emailId);
+      if (!originalEmail) {
+        throw new HttpException('Original email not found', HttpStatus.NOT_FOUND);
+      }
+
+      // Determine recipient (reply to sender of original email)
+      const replyTo = this.extractEmailAddress(originalEmail.from);
+      const replySubject = originalEmail.subject.startsWith('Re:') 
+        ? originalEmail.subject 
+        : `Re: ${originalEmail.subject}`;
+
+      // Build reply body with quoted original
+      const replyBody = `
+        ${body}
+        <br/><br/>
+        <div style="border-left: 2px solid #ccc; padding-left: 10px; margin-left: 10px; color: #666;">
+          <p>On ${new Date(originalEmail.sentAt).toLocaleString()}, ${originalEmail.from} wrote:</p>
+          ${originalEmail.body}
+        </div>
+      `;
+
+      return this.sendEmail(userId, userEmail, replyTo, replySubject, replyBody, attachments);
+    } catch (error) {
+      this.logger.error(`Failed to reply to email: ${error.message}`);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        `Failed to reply: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   async markAsRead(userId: string, emailId: string, isRead: boolean): Promise<boolean> {
